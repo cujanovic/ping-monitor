@@ -1,0 +1,40 @@
+{
+  "ping_interval_seconds": 30,
+  "ping_count": 3,
+  "ping_time_threshold_ms": 200,
+  "email": {
+    "api_key": "your-brevo-api-key-here",
+    "from": "monitor@yourdomain.com",
+    "to": "admin@yourdomain.com"
+  },
+  "targets": [
+    {
+      "name": "Google DNS",
+      "target": "8.8.8.8"
+    },
+    {
+      "name": "Cloudflare DNS",
+      "target": "1.1.1.1"
+    },
+    {
+      "name": "Local Router",
+      "target": "192.168.1.1"
+    },
+    {
+      "name": "Web Server",
+      "target": "10.0.0.10"
+    },
+    {
+      "name": "Database Server",
+      "target": "10.0.0.20"
+    },
+    {
+      "name": "Example Website",
+      "target": "example.com"
+    },
+    {
+      "name": "Company Website",
+      "target": "mycompany.com"
+    }
+  ]
+}
