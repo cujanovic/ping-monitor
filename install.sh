@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Golang Ping Monitor Service Installer for CentOS Stream 9
+# Ping Monitor Service Installer
 # This script installs the ping monitor as a systemd service
 
 set -e
@@ -23,7 +23,7 @@ if [ -d "$INSTALL_DIR" ] && [ -f "$SERVICE_FILE" ]; then
     UPDATE_MODE=true
     echo -e "${YELLOW}🔄 Existing installation detected - Running in UPDATE mode${NC}"
 else
-    echo -e "${GREEN}🚀 Installing Golang Ping Monitor Service${NC}"
+    echo -e "${GREEN}🚀 Installing Ping Monitor Service${NC}"
 fi
 echo "================================================"
 

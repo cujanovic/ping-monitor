@@ -1,4 +1,4 @@
-# Golang Ping Monitor Service
+# Ping Monitor Service
 
 A Go-based service that monitors IP addresses and sends email notifications when they become unreachable.
 
@@ -113,7 +113,7 @@ go build -o ping-monitor
 
 #### As a System Service:
 
-**CentOS Stream 9 (Automated Installation):**
+**Automated Installation (systemd-based Linux):**
 ```bash
 # Run the automated installer
 sudo ./install.sh
@@ -128,7 +128,7 @@ sudo systemctl status ping-monitor
 sudo journalctl -u ping-monitor -f
 ```
 
-**Manual Installation (Other Linux Distributions):**
+**Manual Installation:**
 ```bash
 # Create service file
 sudo tee /etc/systemd/system/ping-monitor.service > /dev/null <<EOF
@@ -306,7 +306,7 @@ curl -X POST "https://api.brevo.com/v3/smtp/email" \
 
 ## Installation Scripts
 
-The project includes automated installation scripts for CentOS Stream 9:
+The project includes automated installation scripts for systemd-based Linux distributions:
 
 #### **Install Script (`install.sh`)**
 ```bash

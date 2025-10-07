@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Golang Ping Monitor Service Uninstaller for CentOS Stream 9
+# Ping Monitor Service Uninstaller
 # This script removes the ping monitor systemd service
 
 set -e
@@ -17,7 +17,7 @@ SERVICE_USER="pingmon"
 INSTALL_DIR="/opt/ping-monitor"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
-echo -e "${RED}🗑️  Uninstalling Golang Ping Monitor Service${NC}"
+echo -e "${RED}🗑️  Uninstalling Ping Monitor Service${NC}"
 echo "================================================"
 
 # Check if running as root
