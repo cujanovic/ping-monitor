@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,15 +21,19 @@ import (
 
 // Config represents the configuration structure
 type Config struct {
-	PingIntervalSeconds       int           `json:"ping_interval_seconds"`
-	PingCount                 int           `json:"ping_count"`
-	PingTimeThresholdMs       int           `json:"ping_time_threshold_ms"`
-	PacketLossThresholdPercent int          `json:"packet_loss_threshold_percent"`
-	AlertCooldownMinutes      int           `json:"alert_cooldown_minutes"`
-	EmailRateLimitPerHour     int           `json:"email_rate_limit_per_hour"`
-	MaxConcurrentPings        int           `json:"max_concurrent_pings"`
-	Email                     Email         `json:"email"`
-	Targets                   []Target      `json:"targets"`
+	PingIntervalSeconds        int    `json:"ping_interval_seconds"`
+	PingCount                  int    `json:"ping_count"`
+	PingTimeThresholdMs        int    `json:"ping_time_threshold_ms"`
+	PacketLossThresholdPercent int    `json:"packet_loss_threshold_percent"`
+	AlertCooldownMinutes       int    `json:"alert_cooldown_minutes"`
+	EmailRateLimitPerHour      int    `json:"email_rate_limit_per_hour"`
+	MaxConcurrentPings         int    `json:"max_concurrent_pings"`
+	DefaultTimeoutSeconds      int    `json:"default_timeout_seconds"`
+	SummaryReportEnabled       bool   `json:"summary_report_enabled"`
+	SummaryReportSchedule      string `json:"summary_report_schedule"` // "daily" or "weekly"
+	SummaryReportTime          string `json:"summary_report_time"`     // "HH:MM" format
+	Email                      Email  `json:"email"`
+	Targets                    []Target `json:"targets"`
 }
 
 type Email struct {
@@ -42,6 +47,22 @@ type Target struct {
 	TargetAddr                 string `json:"target"`
 	PingThresholdMs            int    `json:"ping_time_threshold_ms,omitempty"`
 	PacketLossThresholdPercent int    `json:"packet_loss_threshold_percent,omitempty"`
+	TimeoutSeconds             int    `json:"timeout_seconds,omitempty"`
+}
+
+// TargetStats tracks statistics for a target
+type TargetStats struct {
+	TotalChecks       int64
+	SuccessfulChecks  int64
+	FailedChecks      int64
+	TotalDowntime     time.Duration
+	LastDowntime      time.Time
+	TotalPacketLoss   int64
+	TotalLatency      float64
+	MinLatency        float64
+	MaxLatency        float64
+	HighLatencyCount  int64
+	PacketLossEvents  int64
 }
 
 // AlertKey uniquely identifies an alert type for a target
@@ -52,17 +73,19 @@ type AlertKey struct {
 
 // PingMonitor handles the monitoring logic
 type PingMonitor struct {
-	config              Config
-	downTargets         map[string]bool      // Track which targets are currently down
-	downSince           map[string]time.Time // Track when targets went down
-	slowTargets         map[string]bool      // Track which targets have high latency
-	packetLossTargets   map[string]bool      // Track which targets have packet loss
-	lastAlertTime       map[AlertKey]time.Time // Track last alert time for cooldown
-	emailsSentThisHour  []time.Time          // Sliding window of email timestamps
-	brevoClient         *brevo.APIClient
-	mu                  sync.RWMutex         // Protect shared state
-	emailMu             sync.Mutex           // Protect email rate limiting
-	semaphore           chan struct{}        // Limit concurrent pings
+	config             Config
+	downTargets        map[string]bool                // Track which targets are currently down
+	downSince          map[string]time.Time           // Track when targets went down
+	slowTargets        map[string]bool                // Track which targets have high latency
+	packetLossTargets  map[string]bool                // Track which targets have packet loss
+	lastAlertTime      map[AlertKey]time.Time         // Track last alert time for cooldown
+	emailsSentThisHour []time.Time                    // Sliding window of email timestamps
+	targetStats        map[string]*TargetStats        // Statistics per target
+	statsStartTime     time.Time                      // When stats collection started
+	brevoClient        *brevo.APIClient
+	mu                 sync.RWMutex                   // Protect shared state
+	emailMu            sync.Mutex                     // Protect email rate limiting
+	semaphore          chan struct{}                  // Limit concurrent pings
 }
 
 func NewPingMonitor(config Config) *PingMonitor {
@@ -84,21 +107,157 @@ func NewPingMonitor(config Config) *PingMonitor {
 	if config.MaxConcurrentPings == 0 {
 		config.MaxConcurrentPings = 10 // Default 10 concurrent pings
 	}
+	if config.DefaultTimeoutSeconds == 0 {
+		config.DefaultTimeoutSeconds = 10 // Default 10 seconds timeout
+	}
 
 	// Create semaphore for concurrent ping limiting
 	semaphore := make(chan struct{}, config.MaxConcurrentPings)
 
-	return &PingMonitor{
-		config:            config,
-		downTargets:       make(map[string]bool),
-		downSince:         make(map[string]time.Time),
-		slowTargets:       make(map[string]bool),
-		packetLossTargets: make(map[string]bool),
-		lastAlertTime:     make(map[AlertKey]time.Time),
-		emailsSentThisHour: make([]time.Time, 0),
-		brevoClient:       brevoClient,
-		semaphore:         semaphore,
+	// Initialize target stats
+	targetStats := make(map[string]*TargetStats)
+	for _, target := range config.Targets {
+		targetStats[target.TargetAddr] = &TargetStats{
+			MinLatency: -1, // -1 indicates not set
+		}
 	}
+
+	return &PingMonitor{
+		config:             config,
+		downTargets:        make(map[string]bool),
+		downSince:          make(map[string]time.Time),
+		slowTargets:        make(map[string]bool),
+		packetLossTargets:  make(map[string]bool),
+		lastAlertTime:      make(map[AlertKey]time.Time),
+		emailsSentThisHour: make([]time.Time, 0),
+		targetStats:        targetStats,
+		statsStartTime:     time.Now(),
+		brevoClient:        brevoClient,
+		semaphore:          semaphore,
+	}
+}
+
+// ValidateConfig validates the configuration
+func ValidateConfig(config Config) error {
+	errors := make([]string, 0)
+
+	// Validate basic settings
+	if config.PingIntervalSeconds <= 0 {
+		errors = append(errors, "ping_interval_seconds must be greater than 0")
+	}
+	if config.PingIntervalSeconds < 5 {
+		errors = append(errors, "ping_interval_seconds should be at least 5 seconds for reliability")
+	}
+	if config.PingCount < 1 {
+		errors = append(errors, "ping_count must be at least 1")
+	}
+	if config.PingCount > 10 {
+		errors = append(errors, "ping_count should not exceed 10 for performance reasons")
+	}
+
+	// Validate thresholds
+	if config.PingTimeThresholdMs < 0 {
+		errors = append(errors, "ping_time_threshold_ms cannot be negative")
+	}
+	if config.PacketLossThresholdPercent < 0 || config.PacketLossThresholdPercent > 100 {
+		errors = append(errors, "packet_loss_threshold_percent must be between 0 and 100")
+	}
+	if config.AlertCooldownMinutes < 0 {
+		errors = append(errors, "alert_cooldown_minutes cannot be negative")
+	}
+	if config.EmailRateLimitPerHour < 1 {
+		errors = append(errors, "email_rate_limit_per_hour must be at least 1")
+	}
+	if config.EmailRateLimitPerHour > 300 {
+		errors = append(errors, "email_rate_limit_per_hour exceeds Brevo free tier limit (300/day)")
+	}
+	if config.MaxConcurrentPings < 1 {
+		errors = append(errors, "max_concurrent_pings must be at least 1")
+	}
+	if config.MaxConcurrentPings > 50 {
+		errors = append(errors, "max_concurrent_pings should not exceed 50 for stability")
+	}
+	if config.DefaultTimeoutSeconds < 1 || config.DefaultTimeoutSeconds > 60 {
+		errors = append(errors, "default_timeout_seconds must be between 1 and 60")
+	}
+
+	// Validate email config
+	if config.Email.APIKey == "" || config.Email.APIKey == "your-brevo-api-key-here" {
+		errors = append(errors, "email.api_key must be configured with a valid Brevo API key")
+	}
+	if config.Email.From == "" {
+		errors = append(errors, "email.from cannot be empty")
+	}
+	if !strings.Contains(config.Email.From, "@") {
+		errors = append(errors, "email.from must be a valid email address")
+	}
+	if config.Email.To == "" {
+		errors = append(errors, "email.to cannot be empty")
+	}
+	if !strings.Contains(config.Email.To, "@") {
+		errors = append(errors, "email.to must be a valid email address")
+	}
+
+	// Validate summary report settings
+	if config.SummaryReportEnabled {
+		if config.SummaryReportSchedule != "daily" && config.SummaryReportSchedule != "weekly" {
+			errors = append(errors, "summary_report_schedule must be 'daily' or 'weekly'")
+		}
+		if config.SummaryReportTime != "" {
+			parts := strings.Split(config.SummaryReportTime, ":")
+			if len(parts) != 2 {
+				errors = append(errors, "summary_report_time must be in HH:MM format")
+			}
+		}
+	}
+
+	// Validate targets
+	if len(config.Targets) == 0 {
+		errors = append(errors, "at least one target must be configured")
+	}
+	if len(config.Targets) > 1000 {
+		errors = append(errors, "maximum 1000 targets supported")
+	}
+
+	targetNames := make(map[string]bool)
+	targetAddrs := make(map[string]bool)
+	
+	for i, target := range config.Targets {
+		// Validate target name
+		if target.Name == "" {
+			errors = append(errors, fmt.Sprintf("target[%d].name cannot be empty", i))
+		}
+		if targetNames[target.Name] {
+			errors = append(errors, fmt.Sprintf("duplicate target name: %s", target.Name))
+		}
+		targetNames[target.Name] = true
+
+		// Validate target address
+		if target.TargetAddr == "" {
+			errors = append(errors, fmt.Sprintf("target[%d].target cannot be empty", i))
+		}
+		if targetAddrs[target.TargetAddr] {
+			errors = append(errors, fmt.Sprintf("duplicate target address: %s", target.TargetAddr))
+		}
+		targetAddrs[target.TargetAddr] = true
+
+		// Validate per-target thresholds
+		if target.PingThresholdMs < 0 {
+			errors = append(errors, fmt.Sprintf("target[%d].ping_time_threshold_ms cannot be negative", i))
+		}
+		if target.PacketLossThresholdPercent < 0 || target.PacketLossThresholdPercent > 100 {
+			errors = append(errors, fmt.Sprintf("target[%d].packet_loss_threshold_percent must be between 0 and 100", i))
+		}
+		if target.TimeoutSeconds < 0 || target.TimeoutSeconds > 60 {
+			errors = append(errors, fmt.Sprintf("target[%d].timeout_seconds must be between 0 and 60", i))
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errors, "\n  - "))
+	}
+
+	return nil
 }
 
 // isIPAddress checks if a string is an IP address (IPv4 or IPv6)
@@ -120,21 +279,29 @@ func formatTargetInfo(target Target) string {
 	return fmt.Sprintf("%s (%s: %s)", target.Name, label, target.TargetAddr)
 }
 
+// getTargetTimeout returns the effective timeout for a target
+func (pm *PingMonitor) getTargetTimeout(target Target) time.Duration {
+	if target.TimeoutSeconds > 0 {
+		return time.Duration(target.TimeoutSeconds) * time.Second
+	}
+	return time.Duration(pm.config.DefaultTimeoutSeconds) * time.Second
+}
+
 // pingTarget pings a single target and returns success status, packet loss, and average RTT
 func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	pinger, err := ping.NewPinger(target.TargetAddr)
 	if err != nil {
-		log.Printf("Error creating pinger for %s: %v", formatTargetInfo(target), err)
+		log.Printf("⚠️  Error creating pinger for %s: %v (gracefully continuing)", formatTargetInfo(target), err)
 		return false, 100, 0
 	}
 
 	pinger.Count = pm.config.PingCount
-	pinger.Timeout = 10 * time.Second
+	pinger.Timeout = pm.getTargetTimeout(target)
 	pinger.SetPrivileged(false) // Use unprivileged ping
 
 	err = pinger.Run()
 	if err != nil {
-		log.Printf("Error pinging %s: %v", formatTargetInfo(target), err)
+		log.Printf("⚠️  Error pinging %s: %v (gracefully continuing)", formatTargetInfo(target), err)
 		return false, 100, 0
 	}
 
@@ -152,6 +319,9 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	success := packetsRecv > 0
 	avgRttMs := float64(stats.AvgRtt) / float64(time.Millisecond)
 	
+	// Update statistics
+	pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
+	
 	if success {
 		log.Printf("✓ %s - %d/%d packets received (%.0f%% loss), avg %.2fms", 
 			formatTargetInfo(target), packetsRecv, packetsSent, float64(packetLossPercent), avgRttMs)
@@ -163,22 +333,60 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	return success, packetLossPercent, avgRttMs
 }
 
+// updateTargetStats updates statistics for a target
+func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss int, latencyMs float64) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	stats, exists := pm.targetStats[target.TargetAddr]
+	if !exists {
+		stats = &TargetStats{MinLatency: -1}
+		pm.targetStats[target.TargetAddr] = stats
+	}
+
+	stats.TotalChecks++
+	if success {
+		stats.SuccessfulChecks++
+		stats.TotalLatency += latencyMs
+		
+		// Update min/max latency
+		if stats.MinLatency < 0 || latencyMs < stats.MinLatency {
+			stats.MinLatency = latencyMs
+		}
+		if latencyMs > stats.MaxLatency {
+			stats.MaxLatency = latencyMs
+		}
+		
+		// Track high latency
+		threshold := pm.getTargetThreshold(target)
+		if latencyMs > float64(threshold) {
+			stats.HighLatencyCount++
+		}
+	} else {
+		stats.FailedChecks++
+	}
+
+	stats.TotalPacketLoss += int64(packetLoss)
+	
+	// Track packet loss events
+	packetLossThreshold := pm.getPacketLossThreshold(target)
+	if packetLoss >= packetLossThreshold {
+		stats.PacketLossEvents++
+	}
+}
+
 // formatDuration formats a duration in a human-readable and precise way
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
-		// Show milliseconds for very short durations
 		if d < time.Second {
 			return fmt.Sprintf("%d milliseconds", d.Milliseconds())
 		}
-		// Show seconds with decimal precision for under 1 minute
 		return fmt.Sprintf("%.1f seconds", d.Seconds())
 	} else if d < time.Hour {
-		// Show minutes and seconds precisely
 		minutes := int(d.Minutes())
 		seconds := d.Seconds() - float64(minutes*60)
 		return fmt.Sprintf("%d minutes %.0f seconds", minutes, seconds)
 	} else if d < 24*time.Hour {
-		// Show hours, minutes, and seconds for under 24 hours
 		hours := int(d.Hours())
 		remainingMinutes := d.Minutes() - float64(hours*60)
 		minutes := int(remainingMinutes)
@@ -190,7 +398,6 @@ func formatDuration(d time.Duration) string {
 		}
 		return fmt.Sprintf("%d hours %d minutes %.0f seconds", hours, minutes, seconds)
 	} else {
-		// Show days, hours, and minutes for over 24 hours
 		days := int(d.Hours()) / 24
 		remainingHours := d.Hours() - float64(days*24)
 		hours := int(remainingHours)
@@ -261,7 +468,7 @@ func (pm *PingMonitor) recordAlert(target Target, alertType string) {
 	pm.emailMu.Unlock()
 }
 
-// sendEmail sends a notification email when a target goes down, recovers, or has high latency
+// sendEmail sends a notification email
 func (pm *PingMonitor) sendEmail(target Target, alertType string, rttMs float64, packetLoss int, downtime time.Duration) error {
 	var subject, body string
 	targetLabel := getTargetLabel(target.TargetAddr)
@@ -283,10 +490,7 @@ This target is not responding to ping requests.
 	
 	case "up":
 		subject = fmt.Sprintf("🟢 Ping Monitor Recovery: %s is UP", target.Name)
-		
-		// Format downtime in a human-readable way
 		downtimeStr := formatDuration(downtime)
-		
 		body = fmt.Sprintf(`
 Ping Monitor Recovery
 
@@ -372,7 +576,7 @@ This target's packet loss has returned to normal levels.
 				Email: pm.config.Email.To,
 			},
 		},
-		Subject: subject,
+		Subject:     subject,
 		HtmlContent: fmt.Sprintf("<pre>%s</pre>", body),
 		TextContent: body,
 	}
@@ -387,8 +591,158 @@ This target's packet loss has returned to normal levels.
 	return nil
 }
 
+// sendSummaryReport sends a summary report email
+func (pm *PingMonitor) sendSummaryReport() error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	reportDuration := time.Since(pm.statsStartTime)
+	schedule := pm.config.SummaryReportSchedule
+	
+	subject := fmt.Sprintf("📊 Ping Monitor %s Summary Report", strings.Title(schedule))
+	
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("Ping Monitor %s Summary Report\n", strings.Title(schedule)))
+	body.WriteString(fmt.Sprintf("Period: %s\n", formatDuration(reportDuration)))
+	body.WriteString(fmt.Sprintf("Report Generated: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
+	body.WriteString(strings.Repeat("=", 60) + "\n\n")
+
+	for _, target := range pm.config.Targets {
+		stats, exists := pm.targetStats[target.TargetAddr]
+		if !exists || stats.TotalChecks == 0 {
+			continue
+		}
+
+		uptime := 100.0
+		if stats.TotalChecks > 0 {
+			uptime = (float64(stats.SuccessfulChecks) / float64(stats.TotalChecks)) * 100
+		}
+
+		avgLatency := 0.0
+		if stats.SuccessfulChecks > 0 {
+			avgLatency = stats.TotalLatency / float64(stats.SuccessfulChecks)
+		}
+
+		avgPacketLoss := 0.0
+		if stats.TotalChecks > 0 {
+			avgPacketLoss = float64(stats.TotalPacketLoss) / float64(stats.TotalChecks)
+		}
+
+		body.WriteString(fmt.Sprintf("Target: %s (%s)\n", target.Name, target.TargetAddr))
+		body.WriteString(fmt.Sprintf("  Uptime: %.2f%% (%d/%d checks successful)\n", uptime, stats.SuccessfulChecks, stats.TotalChecks))
+		body.WriteString(fmt.Sprintf("  Failed Checks: %d\n", stats.FailedChecks))
+		
+		if stats.SuccessfulChecks > 0 {
+			minLatency := stats.MinLatency
+			if minLatency < 0 {
+				minLatency = 0
+			}
+			body.WriteString(fmt.Sprintf("  Latency: avg=%.2fms, min=%.2fms, max=%.2fms\n", avgLatency, minLatency, stats.MaxLatency))
+			body.WriteString(fmt.Sprintf("  High Latency Events: %d\n", stats.HighLatencyCount))
+		}
+		
+		body.WriteString(fmt.Sprintf("  Avg Packet Loss: %.1f%%\n", avgPacketLoss))
+		body.WriteString(fmt.Sprintf("  Packet Loss Events: %d\n", stats.PacketLossEvents))
+		body.WriteString("\n")
+	}
+
+	body.WriteString(strings.Repeat("=", 60) + "\n")
+	body.WriteString(fmt.Sprintf("\nNext %s report: %s\n", schedule, pm.getNextReportTime().Format("2006-01-02 15:04:05")))
+
+	// Create email
+	email := brevo.SendSmtpEmail{
+		Sender: &brevo.SendSmtpEmailSender{
+			Name:  "Ping Monitor",
+			Email: pm.config.Email.From,
+		},
+		To: []brevo.SendSmtpEmailTo{
+			{
+				Email: pm.config.Email.To,
+			},
+		},
+		Subject:     subject,
+		HtmlContent: fmt.Sprintf("<pre>%s</pre>", body.String()),
+		TextContent: body.String(),
+	}
+
+	ctx := context.Background()
+	_, _, err := pm.brevoClient.TransactionalEmailsApi.SendTransacEmail(ctx, email)
+	if err != nil {
+		return fmt.Errorf("failed to send summary report: %v", err)
+	}
+
+	log.Printf("📊 Summary report sent successfully")
+	
+	// Reset stats after sending report
+	pm.statsStartTime = time.Now()
+	for addr := range pm.targetStats {
+		pm.targetStats[addr] = &TargetStats{MinLatency: -1}
+	}
+
+	return nil
+}
+
+// getNextReportTime calculates the next report time
+func (pm *PingMonitor) getNextReportTime() time.Time {
+	now := time.Now()
+	
+	// Parse report time
+	reportTime := "00:00"
+	if pm.config.SummaryReportTime != "" {
+		reportTime = pm.config.SummaryReportTime
+	}
+	
+	parts := strings.Split(reportTime, ":")
+	hour, minute := 0, 0
+	if len(parts) == 2 {
+		fmt.Sscanf(parts[0], "%d", &hour)
+		fmt.Sscanf(parts[1], "%d", &minute)
+	}
+
+	nextReport := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+	
+	if pm.config.SummaryReportSchedule == "weekly" {
+		// Next Monday at report time
+		daysUntilMonday := (8 - int(now.Weekday())) % 7
+		if daysUntilMonday == 0 && now.After(nextReport) {
+			daysUntilMonday = 7
+		}
+		nextReport = nextReport.AddDate(0, 0, daysUntilMonday)
+	} else {
+		// Daily - if time has passed today, schedule for tomorrow
+		if now.After(nextReport) {
+			nextReport = nextReport.AddDate(0, 0, 1)
+		}
+	}
+
+	return nextReport
+}
+
+// startSummaryReportScheduler starts the summary report scheduler
+func (pm *PingMonitor) startSummaryReportScheduler() {
+	if !pm.config.SummaryReportEnabled {
+		return
+	}
+
+	go func() {
+		for {
+			nextReport := pm.getNextReportTime()
+			duration := time.Until(nextReport)
+			
+			log.Printf("📅 Next summary report scheduled for: %s (in %s)", 
+				nextReport.Format("2006-01-02 15:04:05"), formatDuration(duration))
+			
+			time.Sleep(duration)
+			
+			log.Printf("📊 Generating %s summary report...", pm.config.SummaryReportSchedule)
+			if err := pm.sendSummaryReport(); err != nil {
+				log.Printf("❌ Failed to send summary report: %v", err)
+			}
+		}
+	}()
+}
+
 // getTargetThreshold returns the effective threshold for a target
-// Uses per-target threshold if set, otherwise falls back to global threshold or 200ms default
 func (pm *PingMonitor) getTargetThreshold(target Target) int {
 	if target.PingThresholdMs > 0 {
 		return target.PingThresholdMs
@@ -410,11 +764,18 @@ func (pm *PingMonitor) getPacketLossThreshold(target Target) int {
 	return 50 // Default 50% packet loss threshold
 }
 
-// monitorTarget monitors a single target
+// monitorTarget monitors a single target with graceful degradation
 func (pm *PingMonitor) monitorTarget(target Target) {
 	// Acquire semaphore to limit concurrent pings
 	pm.semaphore <- struct{}{}
-	defer func() { <-pm.semaphore }()
+	defer func() { 
+		<-pm.semaphore
+		// Recover from any panics to ensure graceful degradation
+		if r := recover(); r != nil {
+			log.Printf("🆘 Recovered from panic in monitorTarget for %s: %v (continuing monitoring)", 
+				formatTargetInfo(target), r)
+		}
+	}()
 
 	success, packetLoss, rttMs := pm.pingTarget(target)
 	
@@ -425,35 +786,35 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 	wasDown := pm.downTargets[target.TargetAddr]
 	
 	if !success && !wasDown {
-		// Target just went down - record the time
+		// Target just went down
 		pm.downTargets[target.TargetAddr] = true
 		pm.downSince[target.TargetAddr] = time.Now()
 		log.Printf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
 		
 		if pm.canSendAlert(target, "down") {
-			pm.mu.Unlock() // Unlock before sending email
+			pm.mu.Unlock()
 			if err := pm.sendEmail(target, "down", 0, packetLoss, 0); err != nil {
-				log.Printf("Failed to send down notification for %s: %v", target.Name, err)
+				log.Printf("⚠️  Failed to send down notification for %s: %v (continuing monitoring)", target.Name, err)
 			} else {
 				pm.recordAlert(target, "down")
 			}
-			pm.mu.Lock() // Re-lock after email
+			pm.mu.Lock()
 		}
 	} else if success && wasDown {
-		// Target just came back up - calculate downtime
+		// Target came back up
 		downtime := time.Since(pm.downSince[target.TargetAddr])
 		delete(pm.downTargets, target.TargetAddr)
 		delete(pm.downSince, target.TargetAddr)
 		log.Printf("🟢 RECOVERY: %s is now UP (was down for %s)", formatTargetInfo(target), formatDuration(downtime))
 		
 		if pm.canSendAlert(target, "up") {
-			pm.mu.Unlock() // Unlock before sending email
+			pm.mu.Unlock()
 			if err := pm.sendEmail(target, "up", rttMs, packetLoss, downtime); err != nil {
-				log.Printf("Failed to send recovery notification for %s: %v", target.Name, err)
+				log.Printf("⚠️  Failed to send recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 			} else {
 				pm.recordAlert(target, "up")
 			}
-			pm.mu.Lock() // Re-lock after email
+			pm.mu.Lock()
 		}
 	}
 	
@@ -464,7 +825,6 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		hasPacketLoss := packetLoss >= packetLossThreshold
 		
 		if hasPacketLoss && !hadPacketLoss {
-			// Packet loss just exceeded threshold
 			pm.packetLossTargets[target.TargetAddr] = true
 			log.Printf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
@@ -472,14 +832,13 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			if pm.canSendAlert(target, "packet_loss") {
 				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
-					log.Printf("Failed to send packet loss notification for %s: %v", target.Name, err)
+					log.Printf("⚠️  Failed to send packet loss notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "packet_loss")
 				}
 				pm.mu.Lock()
 			}
 		} else if !hasPacketLoss && hadPacketLoss {
-			// Packet loss returned to normal
 			delete(pm.packetLossTargets, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
@@ -487,7 +846,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			if pm.canSendAlert(target, "packet_loss_normal") {
 				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, 0); err != nil {
-					log.Printf("Failed to send packet loss recovery notification for %s: %v", target.Name, err)
+					log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "packet_loss_normal")
 				}
@@ -495,13 +854,12 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			}
 		}
 		
-		// Check latency threshold (only if target is up and no major packet loss)
+		// Check latency threshold
 		threshold := pm.getTargetThreshold(target)
 		wasSlow := pm.slowTargets[target.TargetAddr]
 		isSlow := rttMs > float64(threshold)
 		
 		if isSlow && !wasSlow {
-			// Target just became slow
 			pm.slowTargets[target.TargetAddr] = true
 			log.Printf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
@@ -509,14 +867,13 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			if pm.canSendAlert(target, "slow") {
 				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
-					log.Printf("Failed to send high latency notification for %s: %v", target.Name, err)
+					log.Printf("⚠️  Failed to send high latency notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "slow")
 				}
 				pm.mu.Lock()
 			}
 		} else if !isSlow && wasSlow {
-			// Latency returned to normal
 			delete(pm.slowTargets, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
@@ -524,7 +881,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			if pm.canSendAlert(target, "normal") {
 				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, 0); err != nil {
-					log.Printf("Failed to send latency recovery notification for %s: %v", target.Name, err)
+					log.Printf("⚠️  Failed to send latency recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "normal")
 				}
@@ -534,7 +891,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 	}
 }
 
-// Start begins the monitoring process with distributed ping checks
+// Start begins the monitoring process
 func (pm *PingMonitor) Start() {
 	numTargets := len(pm.config.Targets)
 	if numTargets == 0 {
@@ -546,12 +903,20 @@ func (pm *PingMonitor) Start() {
 	log.Printf("   • Targets: %d", numTargets)
 	log.Printf("   • Ping Interval: %d seconds", pm.config.PingIntervalSeconds)
 	log.Printf("   • Ping Count: %d", pm.config.PingCount)
+	log.Printf("   • Default Timeout: %d seconds", pm.config.DefaultTimeoutSeconds)
 	log.Printf("   • Packet Loss Threshold: %d%%", pm.config.PacketLossThresholdPercent)
 	log.Printf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes)
 	log.Printf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour)
 	log.Printf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings)
+	
+	if pm.config.SummaryReportEnabled {
+		log.Printf("   • Summary Reports: %s at %s", 
+			strings.Title(pm.config.SummaryReportSchedule), 
+			pm.config.SummaryReportTime)
+		pm.startSummaryReportScheduler()
+	}
 
-	// Shuffle targets to randomize order on each startup
+	// Shuffle targets to randomize order
 	targets := make([]Target, len(pm.config.Targets))
 	copy(targets, pm.config.Targets)
 	rand.Seed(time.Now().UnixNano())
@@ -560,37 +925,48 @@ func (pm *PingMonitor) Start() {
 	})
 	log.Printf("🔀 Targets shuffled for randomized monitoring order")
 
-	// Calculate delay between checks to distribute pings evenly
+	// Calculate delay between checks
 	intervalSeconds := time.Duration(pm.config.PingIntervalSeconds) * time.Second
 	delayBetweenTargets := intervalSeconds / time.Duration(numTargets)
 
 	log.Printf("📊 Distributing pings with %v delay between targets for continuous monitoring", 
 		delayBetweenTargets)
 
-	// Start a goroutine for each target with staggered start times
+	// Start monitoring goroutines with graceful degradation
 	for i, target := range targets {
-		// Calculate initial delay for this target to spread them out
 		initialDelay := time.Duration(i) * delayBetweenTargets
 		
 		go func(t Target, delay time.Duration) {
-			// Wait for initial stagger
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("🆘 Monitoring goroutine for %s panicked: %v (restarting)", 
+						formatTargetInfo(t), r)
+					// Restart the goroutine
+					go func(tgt Target, dly time.Duration) {
+						time.Sleep(dly)
+						pm.monitorTarget(tgt)
+						ticker := time.NewTicker(intervalSeconds)
+						defer ticker.Stop()
+						for range ticker.C {
+							pm.monitorTarget(tgt)
+						}
+					}(t, delay)
+				}
+			}()
+
 			time.Sleep(delay)
-			
-			// Initial check
 			pm.monitorTarget(t)
 			
-			// Create ticker for this specific target
 			ticker := time.NewTicker(intervalSeconds)
 			defer ticker.Stop()
 			
-			// Periodic checks for this target
 			for range ticker.C {
 				pm.monitorTarget(t)
 			}
 		}(target, initialDelay)
 	}
 
-	log.Printf("✅ All monitoring goroutines started")
+	log.Printf("✅ All monitoring goroutines started with graceful degradation")
 
 	// Keep main goroutine running
 	select {}
@@ -617,22 +993,20 @@ func main() {
 	// Load configuration
 	config, err := loadConfig("config.json")
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatalf("❌ Failed to load configuration: %v", err)
 	}
 
 	// Validate configuration
-	if len(config.Targets) == 0 {
-		log.Fatal("No targets configured")
+	if err := ValidateConfig(config); err != nil {
+		log.Fatalf("❌ %v", err)
 	}
 	
-	if config.PingIntervalSeconds <= 0 {
-		log.Fatal("Ping interval must be greater than 0")
-	}
+	log.Printf("✅ Configuration validated successfully")
 	
-	// Set default ping count if not specified
+	// Set default ping count
 	if config.PingCount <= 0 {
 		config.PingCount = 3
-		log.Printf("Ping count not specified, using default: %d", config.PingCount)
+		log.Printf("ℹ️  Ping count not specified, using default: %d", config.PingCount)
 	}
 
 	// Create monitor
@@ -644,7 +1018,7 @@ func main() {
 	
 	go func() {
 		<-c
-		log.Println("⏹️  Shutting down ping monitor...")
+		log.Println("⏹️  Shutting down ping monitor gracefully...")
 		os.Exit(0)
 	}()
 

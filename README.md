@@ -8,12 +8,16 @@ A Go-based service that monitors IP addresses and sends email notifications when
 - **Packet Loss Detection**: Alerts when packet loss exceeds configurable thresholds (not just complete failure)
 - **Latency Monitoring**: Tracks response times and alerts on high latency
 - **Email Notifications**: Sends alerts when targets go down, recover, or experience issues
+- **Summary Reports**: Daily or weekly email digests with uptime statistics and performance metrics
+- **Config Validation**: Comprehensive validation of configuration on startup
 - **Alert Cooldown**: Prevents alert spam with configurable cooldown periods
 - **Rate Limiting**: Protects email quota with configurable email rate limits
 - **Concurrent Optimization**: Efficient handling of large numbers of targets with worker pool
+- **Graceful Degradation**: Continues monitoring other targets even if some fail
+- **Configurable Timeouts**: Per-target or global timeout settings
 - **Flexible Configuration**: Per-target or global thresholds for latency and packet loss
 - **Graceful Shutdown**: Handles SIGTERM and SIGINT signals properly
-- **Comprehensive Logging**: Detailed logging with statistics
+- **Comprehensive Logging**: Detailed logging with statistics and error recovery
 
 ## Email Service: Brevo (Recommended)
 
@@ -81,6 +85,10 @@ Edit `config.json` to add your monitoring targets:
   "alert_cooldown_minutes": 15,
   "email_rate_limit_per_hour": 60,
   "max_concurrent_pings": 10,
+  "default_timeout_seconds": 10,
+  "summary_report_enabled": true,
+  "summary_report_schedule": "daily",
+  "summary_report_time": "09:00",
   "email": {
     "api_key": "your-brevo-api-key",
     "from": "monitor@yourdomain.com",
@@ -99,13 +107,15 @@ Edit `config.json` to add your monitoring targets:
       "name": "Local Router",
       "target": "192.168.1.1",
       "ping_time_threshold_ms": 50,
-      "packet_loss_threshold_percent": 20
+      "packet_loss_threshold_percent": 20,
+      "timeout_seconds": 5
     },
     {
       "name": "Example Domain",
       "target": "example.com",
       "ping_time_threshold_ms": 500,
-      "packet_loss_threshold_percent": 40
+      "packet_loss_threshold_percent": 40,
+      "timeout_seconds": 15
     }
   ]
 }
@@ -179,6 +189,10 @@ sudo systemctl start ping-monitor
 - **alert_cooldown_minutes**: Minimum time between repeat alerts for the same issue (default: 15 minutes)
 - **email_rate_limit_per_hour**: Maximum emails to send per hour (default: 60, protects against quota exhaustion)
 - **max_concurrent_pings**: Maximum number of concurrent ping operations (default: 10, optimizes for large target lists)
+- **default_timeout_seconds**: Default timeout for ping operations in seconds (default: 10)
+- **summary_report_enabled**: Enable daily/weekly summary reports (default: false)
+- **summary_report_schedule**: Report frequency - "daily" or "weekly" (default: "daily")
+- **summary_report_time**: Time to send reports in HH:MM format (default: "09:00")
 
 #### Email Configuration
 - **email**: Brevo email configuration
@@ -192,10 +206,11 @@ sudo systemctl start ping-monitor
   - **target**: IP address or domain name to ping
   - **ping_time_threshold_ms** (optional): Per-target latency threshold in milliseconds. If not specified, uses global threshold
   - **packet_loss_threshold_percent** (optional): Per-target packet loss threshold as percentage. If not specified, uses global threshold
+  - **timeout_seconds** (optional): Per-target timeout in seconds. If not specified, uses default_timeout_seconds
 
 ## Email Notifications
 
-The service sends six types of email notifications:
+The service sends six types of email notifications plus optional summary reports:
 
 ### 🔴 Down Alert
 ```
@@ -290,6 +305,37 @@ Packet Loss: 10%
 This target's packet loss has returned to normal levels.
 ```
 
+### 📊 Summary Report (Daily/Weekly)
+```
+Subject: 📊 Ping Monitor Daily Summary Report
+
+Ping Monitor Daily Summary Report
+Period: 23 hours 59 minutes
+Report Generated: 2024-01-16 09:00:00
+
+============================================================
+
+Target: Google DNS (8.8.8.8)
+  Uptime: 100.00% (288/288 checks successful)
+  Failed Checks: 0
+  Latency: avg=28.45ms, min=15.20ms, max=45.80ms
+  High Latency Events: 0
+  Avg Packet Loss: 0.0%
+  Packet Loss Events: 0
+
+Target: Local Router (192.168.1.1)
+  Uptime: 95.83% (276/288 checks successful)
+  Failed Checks: 12
+  Latency: avg=2.15ms, min=1.20ms, max=5.50ms
+  High Latency Events: 2
+  Avg Packet Loss: 15.5%
+  Packet Loss Events: 8
+
+============================================================
+
+Next daily report: 2024-01-17 09:00:00
+```
+
 ## Logging
 
 The service provides detailed logging:
@@ -321,6 +367,40 @@ The service provides detailed logging:
 
 ## Advanced Features
 
+### Summary Reports
+Automatically generates and emails daily or weekly summary reports with:
+- Uptime percentage for each target
+- Success/failure statistics
+- Latency metrics (average, min, max)
+- Packet loss statistics
+- Count of high latency and packet loss events
+
+Configure with `summary_report_enabled`, `summary_report_schedule` (daily/weekly), and `summary_report_time` (HH:MM format).
+
+### Config Validation
+Comprehensive validation on startup checks:
+- Required fields are present
+- Values are within valid ranges
+- Email addresses are properly formatted
+- No duplicate target names or addresses
+- Thresholds are reasonable
+- Prevents common configuration mistakes
+
+### Graceful Degradation
+The system continues monitoring all targets even when issues occur:
+- If one target fails, others continue unaffected
+- Network errors don't stop the service
+- Email failures are logged but monitoring continues
+- Panic recovery ensures goroutines restart
+- Errors are logged with context for troubleshooting
+
+### Configurable Timeouts
+Set different timeouts for different targets:
+- Fast local networks: 5 seconds
+- Regional servers: 10 seconds (default)
+- International connections: 15-30 seconds
+- Per-target overrides or global default
+
 ### Alert Cooldown
 Prevents alert spam when targets flap up/down repeatedly. After sending an alert for a specific issue on a target, subsequent alerts for the same issue are suppressed for the cooldown period (default: 15 minutes).
 
@@ -337,27 +417,46 @@ Uses a worker pool pattern to efficiently handle large numbers of targets. The `
 
 ### Common Issues
 
-1. **Permission denied for ping**: The service uses unprivileged ping by default. If you need privileged ping, modify the `SetPrivileged(true)` in the code.
+1. **Configuration validation errors on startup**:
+   - Read the error message carefully - it lists all validation issues
+   - Fix each issue in config.json
+   - Common issues: invalid email format, out-of-range values, duplicate names
 
-2. **Email not sending**: 
+2. **Permission denied for ping**: The service uses unprivileged ping by default. If you need privileged ping, modify the `SetPrivileged(true)` in the code.
+
+3. **Email not sending**: 
    - Verify Brevo API key is correct
    - Check that sender email is verified in Brevo
    - Ensure API key has proper permissions
    - Check if rate limit has been reached (view logs)
 
-3. **Targets not responding**:
+4. **Targets not responding**:
    - Verify IP addresses or domain names are correct
    - Check network connectivity and DNS resolution
    - Ensure targets allow ICMP packets
+   - Try increasing timeout_seconds for slow connections
    
-4. **Too many alerts (spam)**:
+5. **Too many alerts (spam)**:
    - Increase `alert_cooldown_minutes` (default: 15)
    - Adjust thresholds to be less sensitive
+   - Enable summary reports to reduce individual alerts
 
-5. **Hitting email quota**:
+6. **Hitting email quota**:
    - Reduce `email_rate_limit_per_hour` (default: 60)
    - Increase `alert_cooldown_minutes` to reduce frequency
+   - Use summary reports instead of individual alerts
    - Consider upgrading your Brevo plan
+
+7. **Timeouts on specific targets**:
+   - Increase `timeout_seconds` for that target
+   - Check network path to target
+   - Consider if target is appropriate for monitoring
+
+8. **Summary reports not sending**:
+   - Verify `summary_report_enabled` is true
+   - Check `summary_report_time` format (HH:MM)
+   - Ensure `summary_report_schedule` is "daily" or "weekly"
+   - Reports send at the configured time
 
 ### Testing
 
