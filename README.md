@@ -4,11 +4,16 @@ A Go-based service that monitors IP addresses and sends email notifications when
 
 ## Features
 
-- **Ping Monitoring**: Continuously pings configured IP addresses at specified intervals
-- **Email Notifications**: Sends alerts when targets go down or come back up
-- **Configurable**: JSON-based configuration for targets, intervals, and email settings
+- **Ping Monitoring**: Continuously pings configured IP addresses and domains at specified intervals
+- **Packet Loss Detection**: Alerts when packet loss exceeds configurable thresholds (not just complete failure)
+- **Latency Monitoring**: Tracks response times and alerts on high latency
+- **Email Notifications**: Sends alerts when targets go down, recover, or experience issues
+- **Alert Cooldown**: Prevents alert spam with configurable cooldown periods
+- **Rate Limiting**: Protects email quota with configurable email rate limits
+- **Concurrent Optimization**: Efficient handling of large numbers of targets with worker pool
+- **Flexible Configuration**: Per-target or global thresholds for latency and packet loss
 - **Graceful Shutdown**: Handles SIGTERM and SIGINT signals properly
-- **Logging**: Comprehensive logging of ping results and notifications
+- **Comprehensive Logging**: Detailed logging with statistics
 
 ## Email Service: Brevo (Recommended)
 
@@ -72,6 +77,10 @@ Edit `config.json` to add your monitoring targets:
   "ping_interval_seconds": 30,
   "ping_count": 3,
   "ping_time_threshold_ms": 200,
+  "packet_loss_threshold_percent": 50,
+  "alert_cooldown_minutes": 15,
+  "email_rate_limit_per_hour": 60,
+  "max_concurrent_pings": 10,
   "email": {
     "api_key": "your-brevo-api-key",
     "from": "monitor@yourdomain.com",
@@ -89,12 +98,14 @@ Edit `config.json` to add your monitoring targets:
     {
       "name": "Local Router",
       "target": "192.168.1.1",
-      "ping_time_threshold_ms": 50
+      "ping_time_threshold_ms": 50,
+      "packet_loss_threshold_percent": 20
     },
     {
       "name": "Example Domain",
       "target": "example.com",
-      "ping_time_threshold_ms": 500
+      "ping_time_threshold_ms": 500,
+      "packet_loss_threshold_percent": 40
     }
   ]
 }
@@ -160,21 +171,31 @@ sudo systemctl start ping-monitor
 
 ### config.json Structure
 
+#### Global Settings
 - **ping_interval_seconds**: How often to ping targets (in seconds)
 - **ping_count**: Number of ping packets to send per check (default: 3)
-- **ping_time_threshold_ms**: Latency threshold in milliseconds (0 = disabled, recommended: 100-500ms)
+- **ping_time_threshold_ms**: Global latency threshold in milliseconds (default: 200ms)
+- **packet_loss_threshold_percent**: Global packet loss threshold as percentage (default: 50%)
+- **alert_cooldown_minutes**: Minimum time between repeat alerts for the same issue (default: 15 minutes)
+- **email_rate_limit_per_hour**: Maximum emails to send per hour (default: 60, protects against quota exhaustion)
+- **max_concurrent_pings**: Maximum number of concurrent ping operations (default: 10, optimizes for large target lists)
+
+#### Email Configuration
 - **email**: Brevo email configuration
   - **api_key**: Your Brevo API key
   - **from**: Sender email address (must be verified in Brevo)
   - **to**: Recipient email address
+
+#### Target Configuration
 - **targets**: Array of targets to monitor
   - **name**: Human-readable name for the target
   - **target**: IP address or domain name to ping
-  - **ping_time_threshold_ms** (optional): Per-target latency threshold in milliseconds. If not specified, uses global threshold or 200ms default
+  - **ping_time_threshold_ms** (optional): Per-target latency threshold in milliseconds. If not specified, uses global threshold
+  - **packet_loss_threshold_percent** (optional): Per-target packet loss threshold as percentage. If not specified, uses global threshold
 
 ## Email Notifications
 
-The service sends four types of email notifications:
+The service sends six types of email notifications:
 
 ### 🔴 Down Alert
 ```
@@ -238,25 +259,79 @@ Threshold: 200 ms
 This target's latency has returned to normal.
 ```
 
+### 🟠 Packet Loss Alert
+```
+Subject: 🟠 Ping Monitor Alert: Google DNS has PACKET LOSS
+
+Ping Monitor Alert
+
+Target: Google DNS
+IP: 8.8.8.8
+Status: PACKET LOSS
+Time: 2024-01-15 14:30:25
+Packet Loss: 60%
+Threshold: 50%
+
+This target is experiencing significant packet loss.
+```
+
+### 🟢 Packet Loss Recovery
+```
+Subject: 🟢 Ping Monitor Recovery: Google DNS packet loss NORMAL
+
+Ping Monitor Recovery
+
+Target: Google DNS
+IP: 8.8.8.8
+Status: PACKET LOSS NORMAL
+Time: 2024-01-15 14:32:15
+Packet Loss: 10%
+
+This target's packet loss has returned to normal levels.
+```
+
 ## Logging
 
 The service provides detailed logging:
 
 ```
-2024/01/15 14:30:25 Starting ping monitor with 3 targets, checking every 30 seconds
-2024/01/15 14:30:25 Distributing pings with 10s delay between targets for continuous monitoring
-2024/01/15 14:30:25 ✓ Google DNS (IP: 8.8.8.8) - 3/3 packets received, avg 28.45ms
-2024/01/15 14:30:28 ✓ Cloudflare DNS (IP: 1.1.1.1) - 3/3 packets received, avg 15.23ms
-2024/01/15 14:30:30 ✓ Example Website (Domain: example.com) - 3/3 packets received, avg 45.12ms
-2024/01/15 14:30:35 ✗ Local Router (IP: 192.168.1.1) - 0/3 packets received
-2024/01/15 14:30:35 🔴 ALERT: Local Router (IP: 192.168.1.1) is now DOWN
-2024/01/15 14:30:35 Email notification sent for Local Router (IP: 192.168.1.1)
-2024/01/15 14:35:40 🟢 RECOVERY: Local Router (IP: 192.168.1.1) is now UP (was down for 5 minutes 7 seconds)
-2024/01/15 14:35:40 Email notification sent for Local Router (IP: 192.168.1.1)
-2024/01/15 14:31:15 ✓ Server-01 (IP: 10.0.0.5) - 3/3 packets received, avg 450.23ms
-2024/01/15 14:31:15 🟡 ALERT: Server-01 (IP: 10.0.0.5) has HIGH LATENCY (450.23ms > 200ms)
-2024/01/15 14:31:15 Email notification sent for Server-01 (IP: 10.0.0.5)
+2024/01/15 14:30:25 🎯 Ping Monitor Service Starting...
+2024/01/15 14:30:25 🚀 Starting Ping Monitor with the following settings:
+2024/01/15 14:30:25    • Targets: 7
+2024/01/15 14:30:25    • Ping Interval: 30 seconds
+2024/01/15 14:30:25    • Ping Count: 3
+2024/01/15 14:30:25    • Packet Loss Threshold: 50%
+2024/01/15 14:30:25    • Alert Cooldown: 15 minutes
+2024/01/15 14:30:25    • Email Rate Limit: 60/hour
+2024/01/15 14:30:25    • Max Concurrent Pings: 10
+2024/01/15 14:30:25 🔀 Targets shuffled for randomized monitoring order
+2024/01/15 14:30:25 📊 Distributing pings with 4.285s delay between targets for continuous monitoring
+2024/01/15 14:30:25 ✅ All monitoring goroutines started
+2024/01/15 14:30:25 ✓ Google DNS (IP: 8.8.8.8) - 3/3 packets received (0% loss), avg 28.45ms
+2024/01/15 14:30:28 ✓ Cloudflare DNS (IP: 1.1.1.1) - 3/3 packets received (0% loss), avg 15.23ms
+2024/01/15 14:30:30 ✓ Example Website (Domain: example.com) - 3/3 packets received (0% loss), avg 45.12ms
+2024/01/15 14:30:35 ✓ Local Router (IP: 192.168.1.1) - 2/3 packets received (33% loss), avg 2.15ms
+2024/01/15 14:31:05 ✓ Local Router (IP: 192.168.1.1) - 1/3 packets received (67% loss), avg 1.98ms
+2024/01/15 14:31:05 🟠 ALERT: Local Router (IP: 192.168.1.1) has PACKET LOSS (67% >= 20%)
+2024/01/15 14:31:05 📧 Email notification sent for Local Router (IP: 192.168.1.1) (packet_loss)
+2024/01/15 14:32:15 ✓ Web Server (IP: 10.0.0.5) - 3/3 packets received (0% loss), avg 450.23ms
+2024/01/15 14:32:15 🟡 ALERT: Web Server (IP: 10.0.0.5) has HIGH LATENCY (450.23ms > 200ms)
+2024/01/15 14:32:15 📧 Email notification sent for Web Server (IP: 10.0.0.5) (slow)
 ```
+
+## Advanced Features
+
+### Alert Cooldown
+Prevents alert spam when targets flap up/down repeatedly. After sending an alert for a specific issue on a target, subsequent alerts for the same issue are suppressed for the cooldown period (default: 15 minutes).
+
+### Email Rate Limiting
+Protects your Brevo email quota (300 emails/day on free tier) by limiting emails sent per hour. Uses a sliding window to track recent emails. Alerts are logged even if rate limit is reached.
+
+### Packet Loss Detection
+Monitors not just complete failures but also partial packet loss. Perfect for detecting intermittent network issues before they become critical. Configure different thresholds per target.
+
+### Concurrent Optimization
+Uses a worker pool pattern to efficiently handle large numbers of targets. The `max_concurrent_pings` setting prevents overwhelming your network or system resources.
 
 ## Troubleshooting
 
@@ -268,11 +343,21 @@ The service provides detailed logging:
    - Verify Brevo API key is correct
    - Check that sender email is verified in Brevo
    - Ensure API key has proper permissions
+   - Check if rate limit has been reached (view logs)
 
 3. **Targets not responding**:
    - Verify IP addresses or domain names are correct
    - Check network connectivity and DNS resolution
    - Ensure targets allow ICMP packets
+   
+4. **Too many alerts (spam)**:
+   - Increase `alert_cooldown_minutes` (default: 15)
+   - Adjust thresholds to be less sensitive
+
+5. **Hitting email quota**:
+   - Reduce `email_rate_limit_per_hour` (default: 60)
+   - Increase `alert_cooldown_minutes` to reduce frequency
+   - Consider upgrading your Brevo plan
 
 ### Testing
 

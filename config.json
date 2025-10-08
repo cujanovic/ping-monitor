@@ -2,6 +2,10 @@
   "ping_interval_seconds": 30,
   "ping_count": 3,
   "ping_time_threshold_ms": 200,
+  "packet_loss_threshold_percent": 50,
+  "alert_cooldown_minutes": 15,
+  "email_rate_limit_per_hour": 60,
+  "max_concurrent_pings": 10,
   "email": {
     "api_key": "your-brevo-api-key-here",
     "from": "monitor@yourdomain.com",
@@ -19,12 +23,14 @@
     {
       "name": "Local Router",
       "target": "192.168.1.1",
-      "ping_time_threshold_ms": 50
+      "ping_time_threshold_ms": 50,
+      "packet_loss_threshold_percent": 20
     },
     {
       "name": "Web Server",
       "target": "10.0.0.10",
-      "ping_time_threshold_ms": 100
+      "ping_time_threshold_ms": 100,
+      "packet_loss_threshold_percent": 30
     },
     {
       "name": "Database Server",
@@ -33,7 +39,8 @@
     {
       "name": "Example Website",
       "target": "example.com",
-      "ping_time_threshold_ms": 500
+      "ping_time_threshold_ms": 500,
+      "packet_loss_threshold_percent": 40
     },
     {
       "name": "Company Website",
