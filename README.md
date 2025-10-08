@@ -88,11 +88,13 @@ Edit `config.json` to add your monitoring targets:
     },
     {
       "name": "Local Router",
-      "target": "192.168.1.1"
+      "target": "192.168.1.1",
+      "ping_time_threshold_ms": 50
     },
     {
       "name": "Example Domain",
-      "target": "example.com"
+      "target": "example.com",
+      "ping_time_threshold_ms": 500
     }
   ]
 }
@@ -168,6 +170,7 @@ sudo systemctl start ping-monitor
 - **targets**: Array of targets to monitor
   - **name**: Human-readable name for the target
   - **target**: IP address or domain name to ping
+  - **ping_time_threshold_ms** (optional): Per-target latency threshold in milliseconds. If not specified, uses global threshold or 200ms default
 
 ## Email Notifications
 

@@ -33,8 +33,9 @@ type Email struct {
 }
 
 type Target struct {
-	Name       string `json:"name"`
-	TargetAddr string `json:"target"`
+	Name              string `json:"name"`
+	TargetAddr        string `json:"target"`
+	PingThresholdMs   int    `json:"ping_time_threshold_ms,omitempty"` // Optional per-target threshold
 }
 
 // PingMonitor handles the monitoring logic
@@ -158,6 +159,7 @@ func formatDuration(d time.Duration) string {
 func (pm *PingMonitor) sendEmail(target Target, alertType string, rttMs float64, downtime time.Duration) error {
 	var subject, body string
 	targetLabel := getTargetLabel(target.TargetAddr)
+	threshold := pm.getTargetThreshold(target)
 	
 	switch alertType {
 	case "down":
@@ -205,7 +207,7 @@ Average RTT: %.2f ms
 Threshold: %d ms
 
 This target is responding but with high latency.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, pm.config.PingTimeThresholdMs)
+`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, threshold)
 	
 	case "normal":
 		subject = fmt.Sprintf("🟢 Ping Monitor Recovery: %s latency NORMAL", target.Name)
@@ -220,7 +222,7 @@ Average RTT: %.2f ms
 Threshold: %d ms
 
 This target's latency has returned to normal.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, pm.config.PingTimeThresholdMs)
+`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, threshold)
 	}
 
 	// Create email using Brevo SDK
@@ -249,6 +251,18 @@ This target's latency has returned to normal.
 	return nil
 }
 
+// getTargetThreshold returns the effective threshold for a target
+// Uses per-target threshold if set, otherwise falls back to global threshold or 200ms default
+func (pm *PingMonitor) getTargetThreshold(target Target) int {
+	if target.PingThresholdMs > 0 {
+		return target.PingThresholdMs
+	}
+	if pm.config.PingTimeThresholdMs > 0 {
+		return pm.config.PingTimeThresholdMs
+	}
+	return 200 // Default threshold
+}
+
 // monitorTarget monitors a single target
 func (pm *PingMonitor) monitorTarget(target Target) {
 	success, rttMs := pm.pingTarget(target)
@@ -275,16 +289,17 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		}
 	}
 	
-	// Check latency threshold (only if target is up and threshold is configured)
-	if success && pm.config.PingTimeThresholdMs > 0 {
+	// Check latency threshold (only if target is up)
+	if success {
+		threshold := pm.getTargetThreshold(target)
 		wasSlow := pm.slowTargets[target.TargetAddr]
-		isSlow := rttMs > float64(pm.config.PingTimeThresholdMs)
+		isSlow := rttMs > float64(threshold)
 		
 		if isSlow && !wasSlow {
 			// Target just became slow
 			pm.slowTargets[target.TargetAddr] = true
 			log.Printf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
-				formatTargetInfo(target), rttMs, pm.config.PingTimeThresholdMs)
+				formatTargetInfo(target), rttMs, threshold)
 			if err := pm.sendEmail(target, "slow", rttMs, 0); err != nil {
 				log.Printf("Failed to send high latency notification for %s: %v", target.Name, err)
 			}
@@ -292,7 +307,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			// Latency returned to normal
 			delete(pm.slowTargets, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)", 
-				formatTargetInfo(target), rttMs, pm.config.PingTimeThresholdMs)
+				formatTargetInfo(target), rttMs, threshold)
 			if err := pm.sendEmail(target, "normal", rttMs, 0); err != nil {
 				log.Printf("Failed to send latency recovery notification for %s: %v", target.Name, err)
 			}

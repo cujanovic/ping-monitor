@@ -18,11 +18,13 @@
     },
     {
       "name": "Local Router",
-      "target": "192.168.1.1"
+      "target": "192.168.1.1",
+      "ping_time_threshold_ms": 50
     },
     {
       "name": "Web Server",
-      "target": "10.0.0.10"
+      "target": "10.0.0.10",
+      "ping_time_threshold_ms": 100
     },
     {
       "name": "Database Server",
@@ -30,7 +32,8 @@
     },
     {
       "name": "Example Website",
-      "target": "example.com"
+      "target": "example.com",
+      "ping_time_threshold_ms": 500
     },
     {
       "name": "Company Website",
