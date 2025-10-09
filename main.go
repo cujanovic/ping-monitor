@@ -593,9 +593,8 @@ This target's packet loss has returned to normal levels.
 
 // sendSummaryReport sends a summary report email
 func (pm *PingMonitor) sendSummaryReport() error {
+	// Build the report body while holding the lock
 	pm.mu.RLock()
-	defer pm.mu.RUnlock()
-
 	reportDuration := time.Since(pm.statsStartTime)
 	schedule := pm.config.SummaryReportSchedule
 	
@@ -648,6 +647,9 @@ func (pm *PingMonitor) sendSummaryReport() error {
 
 	body.WriteString(strings.Repeat("=", 60) + "\n")
 	body.WriteString(fmt.Sprintf("\nNext %s report: %s\n", schedule, pm.getNextReportTime().Format("2006-01-02 15:04:05")))
+	
+	// Release the lock BEFORE sending email to prevent deadlock
+	pm.mu.RUnlock()
 
 	// Create email
 	email := brevo.SendSmtpEmail{
@@ -668,16 +670,19 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	ctx := context.Background()
 	_, _, err := pm.brevoClient.TransactionalEmailsApi.SendTransacEmail(ctx, email)
 	if err != nil {
+		log.Printf("❌ Failed to send summary report: %v", err)
 		return fmt.Errorf("failed to send summary report: %v", err)
 	}
 
 	log.Printf("📊 Summary report sent successfully")
 	
-	// Reset stats after sending report
+	// Reset stats after sending report - acquire lock again
+	pm.mu.Lock()
 	pm.statsStartTime = time.Now()
 	for addr := range pm.targetStats {
 		pm.targetStats[addr] = &TargetStats{MinLatency: -1}
 	}
+	pm.mu.Unlock()
 
 	return nil
 }
