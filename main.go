@@ -930,32 +930,32 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		pm.downTargets[target.TargetAddr] = true
 		pm.downSince[target.TargetAddr] = time.Now()
 		log.Printf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
+		pm.mu.Unlock()
 		
 		if pm.canSendAlert(target, "down") {
-			pm.mu.Unlock()
 			if err := pm.sendEmail(target, "down", 0, packetLoss, 0); err != nil {
 				log.Printf("⚠️  Failed to send down notification for %s: %v (continuing monitoring)", target.Name, err)
 			} else {
 				pm.recordAlert(target, "down")
 			}
-			pm.mu.Lock()
 		}
+		pm.mu.Lock()
 	} else if success && wasDown {
 		// Target came back up
 		downtime := time.Since(pm.downSince[target.TargetAddr])
 		delete(pm.downTargets, target.TargetAddr)
 		delete(pm.downSince, target.TargetAddr)
 		log.Printf("🟢 RECOVERY: %s is now UP (was down for %s)", formatTargetInfo(target), formatDuration(downtime))
+		pm.mu.Unlock()
 		
 		if pm.canSendAlert(target, "up") {
-			pm.mu.Unlock()
 			if err := pm.sendEmail(target, "up", rttMs, packetLoss, downtime); err != nil {
 				log.Printf("⚠️  Failed to send recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 			} else {
 				pm.recordAlert(target, "up")
 			}
-			pm.mu.Lock()
 		}
+		pm.mu.Lock()
 	}
 	
 	// Check packet loss threshold (only if target is up)
@@ -968,30 +968,30 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			pm.packetLossTargets[target.TargetAddr] = true
 			log.Printf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
+			pm.mu.Unlock()
 			
 			if pm.canSendAlert(target, "packet_loss") {
-				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send packet loss notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "packet_loss")
 				}
-				pm.mu.Lock()
 			}
+			pm.mu.Lock()
 		} else if !hasPacketLoss && hadPacketLoss {
 			delete(pm.packetLossTargets, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
+			pm.mu.Unlock()
 			
 			if pm.canSendAlert(target, "packet_loss_normal") {
-				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "packet_loss_normal")
 				}
-				pm.mu.Lock()
 			}
+			pm.mu.Lock()
 		}
 		
 		// Check latency threshold
@@ -1003,30 +1003,30 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			pm.slowTargets[target.TargetAddr] = true
 			log.Printf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
+			pm.mu.Unlock()
 			
 			if pm.canSendAlert(target, "slow") {
-				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send high latency notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "slow")
 				}
-				pm.mu.Lock()
 			}
+			pm.mu.Lock()
 		} else if !isSlow && wasSlow {
 			delete(pm.slowTargets, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
+			pm.mu.Unlock()
 			
 			if pm.canSendAlert(target, "normal") {
-				pm.mu.Unlock()
 				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send latency recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "normal")
 				}
-				pm.mu.Lock()
 			}
+			pm.mu.Lock()
 		}
 	}
 }
