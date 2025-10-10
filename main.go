@@ -375,6 +375,22 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 	}
 }
 
+// formatNumber formats a number with commas for readability
+func formatNumber(n int64) string {
+	if n < 1000 {
+		return fmt.Sprintf("%d", n)
+	}
+	str := fmt.Sprintf("%d", n)
+	result := ""
+	for i, digit := range str {
+		if i > 0 && (len(str)-i)%3 == 0 {
+			result += ","
+		}
+		result += string(digit)
+	}
+	return result
+}
+
 // formatDuration formats a duration in a human-readable and precise way
 func formatDuration(d time.Duration) string {
 	if d < time.Minute {
@@ -591,20 +607,36 @@ This target's packet loss has returned to normal levels.
 	return nil
 }
 
+// TargetReport holds computed statistics for a target
+type TargetReport struct {
+	Target         Target
+	Uptime         float64
+	AvgLatency     float64
+	MinLatency     float64
+	MaxLatency     float64
+	AvgPacketLoss  float64
+	TotalIssues    int64
+	Stats          *TargetStats
+}
+
 // sendSummaryReport sends a summary report email
 func (pm *PingMonitor) sendSummaryReport() error {
 	// Build the report body while holding the lock
 	pm.mu.RLock()
 	reportDuration := time.Since(pm.statsStartTime)
 	schedule := pm.config.SummaryReportSchedule
+	now := time.Now()
+	reportStart := now.Add(-reportDuration)
 	
 	subject := fmt.Sprintf("📊 Ping Monitor %s Summary Report", strings.Title(schedule))
 	
-	var body strings.Builder
-	body.WriteString(fmt.Sprintf("Ping Monitor %s Summary Report\n", strings.Title(schedule)))
-	body.WriteString(fmt.Sprintf("Period: %s\n", formatDuration(reportDuration)))
-	body.WriteString(fmt.Sprintf("Report Generated: %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
-	body.WriteString(strings.Repeat("=", 60) + "\n\n")
+	// Calculate statistics for all targets and categorize them
+	var healthyTargets []TargetReport
+	var issueTargets []TargetReport
+	var criticalTargets []TargetReport
+	var totalChecks, successfulChecks int64
+	var totalUptime float64
+	targetCount := 0
 
 	for _, target := range pm.config.Targets {
 		stats, exists := pm.targetStats[target.TargetAddr]
@@ -618,8 +650,13 @@ func (pm *PingMonitor) sendSummaryReport() error {
 		}
 
 		avgLatency := 0.0
+		minLatency := 0.0
 		if stats.SuccessfulChecks > 0 {
 			avgLatency = stats.TotalLatency / float64(stats.SuccessfulChecks)
+			minLatency = stats.MinLatency
+			if minLatency < 0 {
+				minLatency = 0
+			}
 		}
 
 		avgPacketLoss := 0.0
@@ -627,26 +664,124 @@ func (pm *PingMonitor) sendSummaryReport() error {
 			avgPacketLoss = float64(stats.TotalPacketLoss) / float64(stats.TotalChecks)
 		}
 
-		body.WriteString(fmt.Sprintf("Target: %s (%s)\n", target.Name, target.TargetAddr))
-		body.WriteString(fmt.Sprintf("  Uptime: %.2f%% (%d/%d checks successful)\n", uptime, stats.SuccessfulChecks, stats.TotalChecks))
-		body.WriteString(fmt.Sprintf("  Failed Checks: %d\n", stats.FailedChecks))
-		
-		if stats.SuccessfulChecks > 0 {
-			minLatency := stats.MinLatency
-			if minLatency < 0 {
-				minLatency = 0
-			}
-			body.WriteString(fmt.Sprintf("  Latency: avg=%.2fms, min=%.2fms, max=%.2fms\n", avgLatency, minLatency, stats.MaxLatency))
-			body.WriteString(fmt.Sprintf("  High Latency Events: %d\n", stats.HighLatencyCount))
+		totalIssues := stats.HighLatencyCount + stats.PacketLossEvents
+
+		report := TargetReport{
+			Target:        target,
+			Uptime:        uptime,
+			AvgLatency:    avgLatency,
+			MinLatency:    minLatency,
+			MaxLatency:    stats.MaxLatency,
+			AvgPacketLoss: avgPacketLoss,
+			TotalIssues:   totalIssues,
+			Stats:         stats,
 		}
-		
-		body.WriteString(fmt.Sprintf("  Avg Packet Loss: %.1f%%\n", avgPacketLoss))
-		body.WriteString(fmt.Sprintf("  Packet Loss Events: %d\n", stats.PacketLossEvents))
-		body.WriteString("\n")
+
+		// Categorize by uptime
+		if uptime >= 99.0 {
+			healthyTargets = append(healthyTargets, report)
+		} else if uptime >= 95.0 {
+			issueTargets = append(issueTargets, report)
+		} else {
+			criticalTargets = append(criticalTargets, report)
+		}
+
+		totalChecks += stats.TotalChecks
+		successfulChecks += stats.SuccessfulChecks
+		totalUptime += uptime
+		targetCount++
 	}
 
-	body.WriteString(strings.Repeat("=", 60) + "\n")
-	body.WriteString(fmt.Sprintf("\nNext %s report: %s\n", schedule, pm.getNextReportTime().Format("2006-01-02 15:04:05")))
+	avgUptime := 0.0
+	if targetCount > 0 {
+		avgUptime = totalUptime / float64(targetCount)
+	}
+
+	// Build the report
+	var body strings.Builder
+	body.WriteString(fmt.Sprintf("📊 Ping Monitor %s Summary Report\n", strings.Title(schedule)))
+	body.WriteString(strings.Repeat("━", 60) + "\n\n")
+	body.WriteString(fmt.Sprintf("Report Period: %s (%s - %s)\n", 
+		formatDuration(reportDuration),
+		reportStart.Format("Jan 2 15:04"),
+		now.Format("Jan 2 15:04")))
+	body.WriteString(fmt.Sprintf("Total Targets Monitored: %d\n\n", targetCount))
+	
+	// Overall health section
+	body.WriteString("📈 OVERALL HEALTH\n")
+	body.WriteString(fmt.Sprintf("  • All Up: %d targets\n", len(healthyTargets)))
+	body.WriteString(fmt.Sprintf("  • Issues: %d targets\n", len(issueTargets)))
+	body.WriteString(fmt.Sprintf("  • Critical: %d targets\n", len(criticalTargets)))
+	body.WriteString(fmt.Sprintf("  • Average Uptime: %.2f%%\n", avgUptime))
+	if totalChecks > 0 {
+		successRate := (float64(successfulChecks) / float64(totalChecks)) * 100
+		body.WriteString(fmt.Sprintf("  • Total Checks: %s (%s successful)\n", 
+			formatNumber(totalChecks), formatNumber(successfulChecks)))
+		body.WriteString(fmt.Sprintf("  • Success Rate: %.2f%%\n", successRate))
+	}
+	body.WriteString("\n")
+
+	// Healthy targets
+	if len(healthyTargets) > 0 {
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🟢 HEALTHY TARGETS (99%%+ uptime) - %d\n", len(healthyTargets)))
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		for _, report := range healthyTargets {
+			body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+			body.WriteString(fmt.Sprintf("  ✓ Uptime: %.2f%% (%s/%s checks)\n", 
+				report.Uptime, formatNumber(report.Stats.SuccessfulChecks), formatNumber(report.Stats.TotalChecks)))
+			if report.Stats.SuccessfulChecks > 0 {
+				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
+					report.AvgLatency, report.MinLatency, report.MaxLatency))
+			}
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%%\n", report.AvgPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+		}
+	}
+
+	// Targets with issues
+	if len(issueTargets) > 0 {
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🟡 TARGETS WITH ISSUES (95-99%% uptime) - %d\n", len(issueTargets)))
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		for _, report := range issueTargets {
+			body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+			body.WriteString(fmt.Sprintf("  ⚠️  Uptime: %.2f%% (%s/%s checks)\n", 
+				report.Uptime, formatNumber(report.Stats.SuccessfulChecks), formatNumber(report.Stats.TotalChecks)))
+			body.WriteString(fmt.Sprintf("  ❌ Failed Checks: %s\n", formatNumber(report.Stats.FailedChecks)))
+			if report.Stats.SuccessfulChecks > 0 {
+				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
+					report.AvgLatency, report.MinLatency, report.MaxLatency))
+			}
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg\n", report.AvgPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+		}
+	}
+
+	// Critical targets
+	if len(criticalTargets) > 0 {
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🔴 CRITICAL TARGETS (<95%% uptime) - %d\n", len(criticalTargets)))
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		for _, report := range criticalTargets {
+			body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+			body.WriteString(fmt.Sprintf("  🚨 Uptime: %.2f%% (%s/%s checks)\n", 
+				report.Uptime, formatNumber(report.Stats.SuccessfulChecks), formatNumber(report.Stats.TotalChecks)))
+			body.WriteString(fmt.Sprintf("  ❌ Failed Checks: %s\n", formatNumber(report.Stats.FailedChecks)))
+			if report.Stats.SuccessfulChecks > 0 {
+				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
+					report.AvgLatency, report.MinLatency, report.MaxLatency))
+			}
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg\n", report.AvgPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+		}
+	}
+
+	body.WriteString(strings.Repeat("━", 60) + "\n\n")
+	body.WriteString(fmt.Sprintf("Next %s report: %s\n", schedule, pm.getNextReportTime().Format("Jan 2, 2006 15:04")))
 	
 	// Release the lock BEFORE sending email to prevent deadlock
 	pm.mu.RUnlock()
