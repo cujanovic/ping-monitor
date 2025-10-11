@@ -50,6 +50,15 @@ type Target struct {
 	TimeoutSeconds             int    `json:"timeout_seconds,omitempty"`
 }
 
+// EventRecord tracks a single event occurrence
+type EventRecord struct {
+	Timestamp   time.Time
+	EventType   string  // "down", "up", "high_latency", "latency_normal", "packet_loss", "packet_loss_normal"
+	Value       float64 // latency in ms or packet loss percentage
+	Threshold   float64 // threshold value
+	Duration    time.Duration // for recovery events - how long the issue lasted
+}
+
 // TargetStats tracks statistics for a target
 type TargetStats struct {
 	TotalChecks       int64
@@ -61,8 +70,10 @@ type TargetStats struct {
 	TotalLatency      float64
 	MinLatency        float64
 	MaxLatency        float64
+	MaxPacketLoss     int
 	HighLatencyCount  int64
 	PacketLossEvents  int64
+	RecentEvents      []EventRecord // Store recent events for reporting
 }
 
 // AlertKey uniquely identifies an alert type for a target
@@ -118,7 +129,8 @@ func NewPingMonitor(config Config) *PingMonitor {
 	targetStats := make(map[string]*TargetStats)
 	for _, target := range config.Targets {
 		targetStats[target.TargetAddr] = &TargetStats{
-			MinLatency: -1, // -1 indicates not set
+			MinLatency:   -1, // -1 indicates not set
+			RecentEvents: make([]EventRecord, 0),
 		}
 	}
 
@@ -340,7 +352,7 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 
 	stats, exists := pm.targetStats[target.TargetAddr]
 	if !exists {
-		stats = &TargetStats{MinLatency: -1}
+		stats = &TargetStats{MinLatency: -1, RecentEvents: make([]EventRecord, 0)}
 		pm.targetStats[target.TargetAddr] = stats
 	}
 
@@ -368,10 +380,65 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 
 	stats.TotalPacketLoss += int64(packetLoss)
 	
+	// Track max packet loss
+	if packetLoss > stats.MaxPacketLoss {
+		stats.MaxPacketLoss = packetLoss
+	}
+	
 	// Track packet loss events
 	packetLossThreshold := pm.getPacketLossThreshold(target)
 	if packetLoss >= packetLossThreshold {
 		stats.PacketLossEvents++
+	}
+}
+
+// recordEvent records an event for summary reporting
+func (pm *PingMonitor) recordEvent(target Target, eventType string, value float64, threshold float64, duration time.Duration) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	stats, exists := pm.targetStats[target.TargetAddr]
+	if !exists {
+		stats = &TargetStats{MinLatency: -1, RecentEvents: make([]EventRecord, 0)}
+		pm.targetStats[target.TargetAddr] = stats
+	}
+
+	event := EventRecord{
+		Timestamp: time.Now(),
+		EventType: eventType,
+		Value:     value,
+		Threshold: threshold,
+		Duration:  duration,
+	}
+
+	stats.RecentEvents = append(stats.RecentEvents, event)
+	
+	// Keep only the most recent 50 events to avoid unbounded growth
+	if len(stats.RecentEvents) > 50 {
+		stats.RecentEvents = stats.RecentEvents[len(stats.RecentEvents)-50:]
+	}
+}
+
+// formatEvent formats an event record in a human-readable way
+func formatEvent(event EventRecord) string {
+	switch event.EventType {
+	case "down":
+		return "Target went DOWN"
+	case "up":
+		if event.Duration > 0 {
+			return fmt.Sprintf("Target recovered (downtime: %s)", formatDuration(event.Duration))
+		}
+		return "Target recovered"
+	case "packet_loss":
+		return fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
+	case "packet_loss_normal":
+		return fmt.Sprintf("Packet loss recovered: %.0f%%", event.Value)
+	case "high_latency":
+		return fmt.Sprintf("High latency: %.2fms (threshold: %.0fms)", event.Value, event.Threshold)
+	case "latency_normal":
+		return fmt.Sprintf("Latency recovered: %.2fms", event.Value)
+	default:
+		return fmt.Sprintf("%s: %.2f", event.EventType, event.Value)
 	}
 }
 
@@ -734,9 +801,19 @@ func (pm *PingMonitor) sendSummaryReport() error {
 				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
 					report.AvgLatency, report.MinLatency, report.MaxLatency))
 			}
-			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%%\n", report.AvgPacketLoss))
-			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n", 
 				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+			
+			// Show recent events if any
+			if len(report.Stats.RecentEvents) > 0 {
+				body.WriteString("  📋 Recent Events:\n")
+				for _, event := range report.Stats.RecentEvents {
+					body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
+						event.Timestamp.Format("Jan 2 15:04:05"), formatEvent(event)))
+				}
+			}
+			body.WriteString("\n")
 		}
 	}
 
@@ -754,9 +831,19 @@ func (pm *PingMonitor) sendSummaryReport() error {
 				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
 					report.AvgLatency, report.MinLatency, report.MaxLatency))
 			}
-			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg\n", report.AvgPacketLoss))
-			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n", 
 				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+			
+			// Show recent events if any
+			if len(report.Stats.RecentEvents) > 0 {
+				body.WriteString("  📋 Recent Events:\n")
+				for _, event := range report.Stats.RecentEvents {
+					body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
+						event.Timestamp.Format("Jan 2 15:04:05"), formatEvent(event)))
+				}
+			}
+			body.WriteString("\n")
 		}
 	}
 
@@ -774,9 +861,19 @@ func (pm *PingMonitor) sendSummaryReport() error {
 				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
 					report.AvgLatency, report.MinLatency, report.MaxLatency))
 			}
-			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg\n", report.AvgPacketLoss))
-			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n\n", 
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Issues: %d high latency, %d packet loss events\n", 
 				report.Stats.HighLatencyCount, report.Stats.PacketLossEvents))
+			
+			// Show recent events if any
+			if len(report.Stats.RecentEvents) > 0 {
+				body.WriteString("  📋 Recent Events:\n")
+				for _, event := range report.Stats.RecentEvents {
+					body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
+						event.Timestamp.Format("Jan 2 15:04:05"), formatEvent(event)))
+				}
+			}
+			body.WriteString("\n")
 		}
 	}
 
@@ -815,7 +912,10 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	pm.mu.Lock()
 	pm.statsStartTime = time.Now()
 	for addr := range pm.targetStats {
-		pm.targetStats[addr] = &TargetStats{MinLatency: -1}
+		pm.targetStats[addr] = &TargetStats{
+			MinLatency:   -1,
+			RecentEvents: make([]EventRecord, 0),
+		}
 	}
 	pm.mu.Unlock()
 
@@ -932,6 +1032,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		log.Printf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
 		pm.mu.Unlock()
 		
+		pm.recordEvent(target, "down", 0, 0, 0)
+		
 		if pm.canSendAlert(target, "down") {
 			if err := pm.sendEmail(target, "down", 0, packetLoss, 0); err != nil {
 				log.Printf("⚠️  Failed to send down notification for %s: %v (continuing monitoring)", target.Name, err)
@@ -947,6 +1049,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		delete(pm.downSince, target.TargetAddr)
 		log.Printf("🟢 RECOVERY: %s is now UP (was down for %s)", formatTargetInfo(target), formatDuration(downtime))
 		pm.mu.Unlock()
+		
+		pm.recordEvent(target, "up", rttMs, 0, downtime)
 		
 		if pm.canSendAlert(target, "up") {
 			if err := pm.sendEmail(target, "up", rttMs, packetLoss, downtime); err != nil {
@@ -970,6 +1074,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
 			pm.mu.Unlock()
 			
+			pm.recordEvent(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0)
+			
 			if pm.canSendAlert(target, "packet_loss") {
 				if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send packet loss notification for %s: %v (continuing monitoring)", target.Name, err)
@@ -983,6 +1089,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
 			pm.mu.Unlock()
+			
+			pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), 0)
 			
 			if pm.canSendAlert(target, "packet_loss_normal") {
 				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, 0); err != nil {
@@ -1005,6 +1113,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 				formatTargetInfo(target), rttMs, threshold)
 			pm.mu.Unlock()
 			
+			pm.recordEvent(target, "high_latency", rttMs, float64(threshold), 0)
+			
 			if pm.canSendAlert(target, "slow") {
 				if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
 					log.Printf("⚠️  Failed to send high latency notification for %s: %v (continuing monitoring)", target.Name, err)
@@ -1018,6 +1128,8 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
 			pm.mu.Unlock()
+			
+			pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), 0)
 			
 			if pm.canSendAlert(target, "normal") {
 				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, 0); err != nil {
