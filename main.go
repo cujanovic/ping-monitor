@@ -29,6 +29,7 @@ type Config struct {
 	EmailRateLimitPerHour      int    `json:"email_rate_limit_per_hour"`
 	MaxConcurrentPings         int    `json:"max_concurrent_pings"`
 	DefaultTimeoutSeconds      int    `json:"default_timeout_seconds"`
+	ReportTimeOffsetHours      int    `json:"report_time_offset_hours"` // Timezone offset for reports (e.g., +2 for UTC+2)
 	SummaryReportEnabled       bool   `json:"summary_report_enabled"`
 	SummaryReportSchedule      string `json:"summary_report_schedule"` // "daily" or "weekly"
 	SummaryReportTime          string `json:"summary_report_time"`     // "HH:MM" format
@@ -88,7 +89,9 @@ type PingMonitor struct {
 	downTargets        map[string]bool                // Track which targets are currently down
 	downSince          map[string]time.Time           // Track when targets went down
 	slowTargets        map[string]bool                // Track which targets have high latency
+	slowSince          map[string]time.Time           // Track when targets became slow
 	packetLossTargets  map[string]bool                // Track which targets have packet loss
+	packetLossSince    map[string]time.Time           // Track when packet loss started
 	lastAlertTime      map[AlertKey]time.Time         // Track last alert time for cooldown
 	emailsSentThisHour []time.Time                    // Sliding window of email timestamps
 	targetStats        map[string]*TargetStats        // Statistics per target
@@ -139,7 +142,9 @@ func NewPingMonitor(config Config) *PingMonitor {
 		downTargets:        make(map[string]bool),
 		downSince:          make(map[string]time.Time),
 		slowTargets:        make(map[string]bool),
+		slowSince:          make(map[string]time.Time),
 		packetLossTargets:  make(map[string]bool),
+		packetLossSince:    make(map[string]time.Time),
 		lastAlertTime:      make(map[AlertKey]time.Time),
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
@@ -442,6 +447,11 @@ func formatEvent(event EventRecord) string {
 	}
 }
 
+// getReportTime returns the current time adjusted by the configured offset
+func (pm *PingMonitor) getReportTime() time.Time {
+	return time.Now().Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+}
+
 // formatNumber formats a number with commas for readability
 func formatNumber(n int64) string {
 	if n < 1000 {
@@ -556,6 +566,7 @@ func (pm *PingMonitor) sendEmail(target Target, alertType string, rttMs float64,
 	var subject, body string
 	targetLabel := getTargetLabel(target.TargetAddr)
 	threshold := pm.getTargetThreshold(target)
+	reportTime := pm.getReportTime()
 	
 	switch alertType {
 	case "down":
@@ -569,7 +580,7 @@ Status: DOWN
 Time: %s
 
 This target is not responding to ping requests.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"))
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"))
 	
 	case "up":
 		subject = fmt.Sprintf("🟢 Ping Monitor Recovery: %s is UP", target.Name)
@@ -582,10 +593,10 @@ Target: %s
 Status: UP
 Time: %s
 Average RTT: %.2f ms
-Downtime: %s
+Downtime Duration: %s
 
 This target is now responding to ping requests.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, downtimeStr)
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"), rttMs, downtimeStr)
 	
 	case "slow":
 		subject = fmt.Sprintf("🟡 Ping Monitor Alert: %s has HIGH LATENCY", target.Name)
@@ -600,10 +611,14 @@ Average RTT: %.2f ms
 Threshold: %d ms
 
 This target is responding but with high latency.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, threshold)
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"), rttMs, threshold)
 	
 	case "normal":
 		subject = fmt.Sprintf("🟢 Ping Monitor Recovery: %s latency NORMAL", target.Name)
+		durationStr := ""
+		if downtime > 0 {
+			durationStr = fmt.Sprintf("\nIncident Duration: %s", formatDuration(downtime))
+		}
 		body = fmt.Sprintf(`
 Ping Monitor Recovery
 
@@ -612,10 +627,10 @@ Target: %s
 Status: LATENCY NORMAL
 Time: %s
 Average RTT: %.2f ms
-Threshold: %d ms
+Threshold: %d ms%s
 
 This target's latency has returned to normal.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), rttMs, threshold)
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"), rttMs, threshold, durationStr)
 	
 	case "packet_loss":
 		packetLossThreshold := pm.getPacketLossThreshold(target)
@@ -631,10 +646,14 @@ Packet Loss: %d%%
 Threshold: %d%%
 
 This target is experiencing significant packet loss.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), packetLoss, packetLossThreshold)
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"), packetLoss, packetLossThreshold)
 	
 	case "packet_loss_normal":
 		subject = fmt.Sprintf("🟢 Ping Monitor Recovery: %s packet loss NORMAL", target.Name)
+		durationStr := ""
+		if downtime > 0 {
+			durationStr = fmt.Sprintf("\nIncident Duration: %s", formatDuration(downtime))
+		}
 		body = fmt.Sprintf(`
 Ping Monitor Recovery
 
@@ -642,10 +661,10 @@ Target: %s
 %s: %s
 Status: PACKET LOSS NORMAL
 Time: %s
-Packet Loss: %d%%
+Packet Loss: %d%%%s
 
 This target's packet loss has returned to normal levels.
-`, target.Name, targetLabel, target.TargetAddr, time.Now().Format("2006-01-02 15:04:05"), packetLoss)
+`, target.Name, targetLabel, target.TargetAddr, reportTime.Format("2006-01-02 15:04:05"), packetLoss, durationStr)
 	}
 
 	// Create email using Brevo SDK
@@ -1070,6 +1089,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		
 		if hasPacketLoss && !hadPacketLoss {
 			pm.packetLossTargets[target.TargetAddr] = true
+			pm.packetLossSince[target.TargetAddr] = time.Now()
 			log.Printf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
 			pm.mu.Unlock()
@@ -1085,15 +1105,20 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			}
 			pm.mu.Lock()
 		} else if !hasPacketLoss && hadPacketLoss {
+			duration := time.Duration(0)
+			if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
+				duration = time.Since(startTime)
+			}
 			delete(pm.packetLossTargets, target.TargetAddr)
+			delete(pm.packetLossSince, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
 			pm.mu.Unlock()
 			
-			pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), 0)
+			pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
 			
 			if pm.canSendAlert(target, "packet_loss_normal") {
-				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, 0); err != nil {
+				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
 					log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "packet_loss_normal")
@@ -1109,6 +1134,7 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		
 		if isSlow && !wasSlow {
 			pm.slowTargets[target.TargetAddr] = true
+			pm.slowSince[target.TargetAddr] = time.Now()
 			log.Printf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
 			pm.mu.Unlock()
@@ -1124,15 +1150,20 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 			}
 			pm.mu.Lock()
 		} else if !isSlow && wasSlow {
+			duration := time.Duration(0)
+			if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
+				duration = time.Since(startTime)
+			}
 			delete(pm.slowTargets, target.TargetAddr)
+			delete(pm.slowSince, target.TargetAddr)
 			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
 			pm.mu.Unlock()
 			
-			pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), 0)
+			pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
 			
 			if pm.canSendAlert(target, "normal") {
-				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, 0); err != nil {
+				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
 					log.Printf("⚠️  Failed to send latency recovery notification for %s: %v (continuing monitoring)", target.Name, err)
 				} else {
 					pm.recordAlert(target, "normal")
