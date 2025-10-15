@@ -215,6 +215,62 @@ func (sm *SessionManager) ResetLoginAttempts(ip string) {
 	sm.mu.Unlock()
 }
 
+// validateReturnURL validates that a return URL is safe (no open redirect)
+func (pm *PingMonitor) validateReturnURL(returnURL string) string {
+	// Default to root if empty
+	if returnURL == "" {
+		return "/"
+	}
+	
+	// Must start with / (relative path)
+	if !strings.HasPrefix(returnURL, "/") {
+		log.Printf("⚠️  Invalid return URL (not relative): %s", returnURL)
+		return "/"
+	}
+	
+	// Prevent protocol-relative URLs (//evil.com)
+	if strings.HasPrefix(returnURL, "//") {
+		log.Printf("⚠️  Invalid return URL (protocol-relative): %s", returnURL)
+		return "/"
+	}
+	
+	// Prevent URLs with schemes (http://, https://, javascript:, etc.)
+	if strings.Contains(returnURL, ":") {
+		log.Printf("⚠️  Invalid return URL (contains scheme): %s", returnURL)
+		return "/"
+	}
+	
+	// Prevent newline injection
+	if strings.ContainsAny(returnURL, "\r\n") {
+		log.Printf("⚠️  Invalid return URL (contains newline): %s", returnURL)
+		return "/"
+	}
+	
+	// Additional check: must be a valid local path
+	// Allow only: /, /reports, /report_now, /report_all
+	// Or any path starting with these + query params
+	validPaths := []string{"/", "/reports", "/report_now", "/report_all"}
+	pathWithoutQuery := returnURL
+	if idx := strings.Index(returnURL, "?"); idx != -1 {
+		pathWithoutQuery = returnURL[:idx]
+	}
+	
+	isValid := false
+	for _, validPath := range validPaths {
+		if pathWithoutQuery == validPath {
+			isValid = true
+			break
+		}
+	}
+	
+	if !isValid {
+		log.Printf("⚠️  Invalid return URL (not a valid path): %s", returnURL)
+		return "/"
+	}
+	
+	return returnURL
+}
+
 // AuthMiddleware is middleware that requires authentication
 func (pm *PingMonitor) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -227,12 +283,14 @@ func (pm *PingMonitor) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Check for session cookie
 		cookie, err := r.Cookie("session")
 		if err != nil || !pm.sessionManager.ValidateSession(cookie.Value) {
-			// Redirect to login with return URL
+			// Redirect to login with return URL (validated)
 			returnURL := r.URL.Path
 			if r.URL.RawQuery != "" {
 				returnURL += "?" + r.URL.RawQuery
 			}
-			http.Redirect(w, r, "/login?return="+returnURL, http.StatusSeeOther)
+			// Validate the return URL before using it
+			safeReturnURL := pm.validateReturnURL(returnURL)
+			http.Redirect(w, r, "/login?return="+safeReturnURL, http.StatusSeeOther)
 			return
 		}
 		
@@ -245,15 +303,14 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		// Show login page
 		returnURL := r.URL.Query().Get("return")
-		if returnURL == "" {
-			returnURL = "/"
-		}
+		// Validate return URL to prevent open redirect
+		safeReturnURL := pm.validateReturnURL(returnURL)
 		
 		data := struct {
 			Error     string
 			ReturnURL string
 		}{
-			ReturnURL: returnURL,
+			ReturnURL: safeReturnURL,
 		}
 		
 		if err := pm.templates.ExecuteTemplate(w, "login.html", data); err != nil {
@@ -269,12 +326,15 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		
 		// Check if locked out
 		if pm.sessionManager.IsLockedOut(ip) {
+			// Validate return URL
+			safeReturnURL := pm.validateReturnURL(r.FormValue("return"))
+			
 			data := struct {
 				Error     string
 				ReturnURL string
 			}{
 				Error:     "Too many failed attempts. Please try again later.",
-				ReturnURL: r.FormValue("return"),
+				ReturnURL: safeReturnURL,
 			}
 			w.WriteHeader(http.StatusTooManyRequests)
 			pm.templates.ExecuteTemplate(w, "login.html", data)
@@ -288,12 +348,15 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 			pm.sessionManager.RecordFailedLogin(ip)
 			log.Printf("⚠️  Failed login attempt from %s", ip)
 			
+			// Validate return URL
+			safeReturnURL := pm.validateReturnURL(r.FormValue("return"))
+			
 			data := struct {
 				Error     string
 				ReturnURL string
 			}{
 				Error:     "Invalid password",
-				ReturnURL: r.FormValue("return"),
+				ReturnURL: safeReturnURL,
 			}
 			w.WriteHeader(http.StatusUnauthorized)
 			pm.templates.ExecuteTemplate(w, "login.html", data)
@@ -322,12 +385,10 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		
 		log.Printf("✅ Successful login from %s", ip)
 		
-		// Redirect to return URL
+		// Redirect to return URL (validated to prevent open redirect)
 		returnURL := r.FormValue("return")
-		if returnURL == "" {
-			returnURL = "/"
-		}
-		http.Redirect(w, r, returnURL, http.StatusSeeOther)
+		safeReturnURL := pm.validateReturnURL(returnURL)
+		http.Redirect(w, r, safeReturnURL, http.StatusSeeOther)
 		return
 	}
 	
