@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"html/template"
 	"log"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sort"
@@ -34,6 +35,13 @@ type Config struct {
 	SummaryReportEnabled       bool   `json:"summary_report_enabled"`
 	SummaryReportSchedule      string `json:"summary_report_schedule"` // "daily" or "weekly"
 	SummaryReportTime          string `json:"summary_report_time"`     // "HH:MM" format
+	HTTPEnabled                bool   `json:"http_enabled"`
+	HTTPListen                 string `json:"http_listen"`              // e.g., "127.0.0.1:8080" or ":8080"
+	HTTPLogLines               int    `json:"http_log_lines"`           // Number of recent log lines to show
+	HTTPRateLimitPerMinute     int    `json:"http_rate_limit_per_minute"` // HTTP requests per minute per IP (0 = unlimited)
+	ReportsDirectory           string `json:"reports_directory"`        // Directory to store report files (empty = memory only)
+	ReportsKeepCount           int    `json:"reports_keep_count"`       // Number of reports to keep on disk (default: 10)
+	LogBufferFlushSeconds      int    `json:"log_buffer_flush_seconds"` // Flush log buffer every N seconds (default: 5)
 	Email                      Email  `json:"email"`
 	Targets                    []Target `json:"targets"`
 }
@@ -84,6 +92,20 @@ type AlertKey struct {
 	AlertType  string
 }
 
+// LogEntry represents a single log entry
+type LogEntry struct {
+	Timestamp time.Time
+	Message   string
+}
+
+// HTTPRateLimiter tracks HTTP requests per IP
+type HTTPRateLimiter struct {
+	requests map[string][]time.Time
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+}
+
 // PingMonitor handles the monitoring logic
 type PingMonitor struct {
 	config             Config
@@ -97,6 +119,13 @@ type PingMonitor struct {
 	emailsSentThisHour []time.Time                    // Sliding window of email timestamps
 	targetStats        map[string]*TargetStats        // Statistics per target
 	statsStartTime     time.Time                      // When stats collection started
+	logBuffer          []LogEntry                     // Circular buffer for recent logs
+	logPendingBuffer   []LogEntry                     // Pending logs to be flushed
+	logMu              sync.Mutex                     // Protect log buffer
+	lastEmailReport    string                         // Last generated email report
+	lastEmailReportMu  sync.RWMutex                   // Protect last email report
+	httpRateLimiter    *HTTPRateLimiter               // HTTP rate limiter
+	templates          *template.Template             // HTML templates
 	brevoClient        *brevo.APIClient
 	mu                 sync.RWMutex                   // Protect shared state
 	emailMu            sync.Mutex                     // Protect email rate limiting
@@ -138,7 +167,42 @@ func NewPingMonitor(config Config) *PingMonitor {
 		}
 	}
 
-	return &PingMonitor{
+	// Set default HTTP log lines
+	if config.HTTPLogLines == 0 {
+		config.HTTPLogLines = 20
+	}
+	
+	// Set default reports keep count
+	if config.ReportsKeepCount == 0 {
+		config.ReportsKeepCount = 10
+	}
+	
+	// Set default log buffer flush interval
+	if config.LogBufferFlushSeconds == 0 {
+		config.LogBufferFlushSeconds = 5
+	}
+	
+	// Create reports directory if specified
+	if config.ReportsDirectory != "" {
+		if err := os.MkdirAll(config.ReportsDirectory, 0755); err != nil {
+			log.Printf("⚠️  Failed to create reports directory: %v", err)
+		}
+	}
+	
+	// Initialize HTTP rate limiter
+	var rateLimiter *HTTPRateLimiter
+	if config.HTTPRateLimitPerMinute > 0 {
+		rateLimiter = &HTTPRateLimiter{
+			requests: make(map[string][]time.Time),
+			limit:    config.HTTPRateLimitPerMinute,
+			window:   time.Minute,
+		}
+	}
+	
+	// Initialize HTML templates
+	templates := initTemplates()
+
+	pm := &PingMonitor{
 		config:             config,
 		downTargets:        make(map[string]bool),
 		downSince:          make(map[string]time.Time),
@@ -150,9 +214,18 @@ func NewPingMonitor(config Config) *PingMonitor {
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
 		statsStartTime:     time.Now(),
+		logBuffer:          make([]LogEntry, 0, config.HTTPLogLines),
+		logPendingBuffer:   make([]LogEntry, 0),
+		httpRateLimiter:    rateLimiter,
+		templates:          templates,
 		brevoClient:        brevoClient,
 		semaphore:          semaphore,
 	}
+	
+	// Start log buffer flusher
+	go pm.logBufferFlusher()
+	
+	return pm
 }
 
 // ValidateConfig validates the configuration
@@ -451,6 +524,254 @@ func formatEvent(event EventRecord) string {
 // getReportTime returns the current time adjusted by the configured offset
 func (pm *PingMonitor) getReportTime() time.Time {
 	return time.Now().Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+}
+
+// addLog adds a log entry to the pending buffer (non-blocking)
+func (pm *PingMonitor) addLog(message string) {
+	entry := LogEntry{
+		Timestamp: pm.getReportTime(),
+		Message:   message,
+	}
+
+	pm.logMu.Lock()
+	pm.logPendingBuffer = append(pm.logPendingBuffer, entry)
+	pm.logMu.Unlock()
+}
+
+// logBufferFlusher periodically flushes pending logs to the main buffer
+func (pm *PingMonitor) logBufferFlusher() {
+	ticker := time.NewTicker(time.Duration(pm.config.LogBufferFlushSeconds) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		pm.flushLogBuffer()
+	}
+}
+
+// flushLogBuffer moves pending logs to the main buffer
+func (pm *PingMonitor) flushLogBuffer() {
+	pm.logMu.Lock()
+	defer pm.logMu.Unlock()
+
+	if len(pm.logPendingBuffer) == 0 {
+		return
+	}
+
+	// Append pending logs to main buffer
+	pm.logBuffer = append(pm.logBuffer, pm.logPendingBuffer...)
+	
+	// Keep only the last N entries
+	if len(pm.logBuffer) > pm.config.HTTPLogLines {
+		pm.logBuffer = pm.logBuffer[len(pm.logBuffer)-pm.config.HTTPLogLines:]
+	}
+	
+	// Clear pending buffer
+	pm.logPendingBuffer = pm.logPendingBuffer[:0]
+}
+
+// getRecentLogs returns the recent log entries
+func (pm *PingMonitor) getRecentLogs() []LogEntry {
+	// Flush pending logs first
+	pm.flushLogBuffer()
+	
+	pm.logMu.Lock()
+	defer pm.logMu.Unlock()
+
+	// Return a copy
+	logs := make([]LogEntry, len(pm.logBuffer))
+	copy(logs, pm.logBuffer)
+	return logs
+}
+
+// HTTPRateLimiter methods
+
+// Allow checks if a request from the given IP is allowed
+func (rl *HTTPRateLimiter) Allow(ip string) bool {
+	if rl == nil {
+		return true // Rate limiting disabled
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window)
+
+	// Clean up old requests
+	requests := rl.requests[ip]
+	validRequests := make([]time.Time, 0, len(requests))
+	for _, t := range requests {
+		if t.After(cutoff) {
+			validRequests = append(validRequests, t)
+		}
+	}
+
+	// Check if under limit
+	if len(validRequests) >= rl.limit {
+		rl.requests[ip] = validRequests
+		return false
+	}
+
+	// Add current request
+	validRequests = append(validRequests, now)
+	rl.requests[ip] = validRequests
+	return true
+}
+
+// Cleanup removes old IP entries (call periodically)
+func (rl *HTTPRateLimiter) Cleanup() {
+	if rl == nil {
+		return
+	}
+
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-rl.window * 2) // Keep 2x window for safety
+
+	for ip, requests := range rl.requests {
+		allOld := true
+		for _, t := range requests {
+			if t.After(cutoff) {
+				allOld = false
+				break
+			}
+		}
+		if allOld {
+			delete(rl.requests, ip)
+		}
+	}
+}
+
+// saveReportToFile saves a report to disk
+func (pm *PingMonitor) saveReportToFile(reportText string) error {
+	if pm.config.ReportsDirectory == "" {
+		return nil // File storage disabled
+	}
+
+	// Generate filename with timestamp
+	timestamp := pm.getReportTime().Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("report_%s.txt", timestamp)
+	filepath := fmt.Sprintf("%s/%s", pm.config.ReportsDirectory, filename)
+
+	// Write report to file
+	if err := os.WriteFile(filepath, []byte(reportText), 0644); err != nil {
+		return fmt.Errorf("failed to write report file: %v", err)
+	}
+
+	log.Printf("💾 Report saved to: %s", filepath)
+	pm.addLog(fmt.Sprintf("Report saved to: %s", filename))
+
+	// Clean up old reports only when needed
+	pm.cleanupOldReportsIfNeeded()
+
+	return nil
+}
+
+// cleanupOldReportsIfNeeded removes old report files only if count exceeds threshold
+func (pm *PingMonitor) cleanupOldReportsIfNeeded() {
+	if pm.config.ReportsDirectory == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(pm.config.ReportsDirectory)
+	if err != nil {
+		log.Printf("⚠️  Failed to read reports directory: %v", err)
+		return
+	}
+
+	// Count report files
+	var reportFiles []os.DirEntry
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "report_") && strings.HasSuffix(entry.Name(), ".txt") {
+			reportFiles = append(reportFiles, entry)
+		}
+	}
+
+	// Only cleanup if we exceed the keep count
+	if len(reportFiles) <= pm.config.ReportsKeepCount {
+		return
+	}
+
+	// Get file info for sorting
+	type fileWithInfo struct {
+		entry os.DirEntry
+		info  os.FileInfo
+	}
+	
+	filesWithInfo := make([]fileWithInfo, 0, len(reportFiles))
+	for _, entry := range reportFiles {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		filesWithInfo = append(filesWithInfo, fileWithInfo{entry, info})
+	}
+
+	// Sort by modification time (newest first)
+	sort.Slice(filesWithInfo, func(i, j int) bool {
+		return filesWithInfo[i].info.ModTime().After(filesWithInfo[j].info.ModTime())
+	})
+
+	// Remove old files beyond the keep count
+	for i := pm.config.ReportsKeepCount; i < len(filesWithInfo); i++ {
+		filepath := fmt.Sprintf("%s/%s", pm.config.ReportsDirectory, filesWithInfo[i].entry.Name())
+		if err := os.Remove(filepath); err != nil {
+			log.Printf("⚠️  Failed to remove old report %s: %v", filesWithInfo[i].entry.Name(), err)
+		} else {
+			log.Printf("🗑️  Removed old report: %s", filesWithInfo[i].entry.Name())
+		}
+	}
+}
+
+// loadLatestReport loads the most recent report from disk
+func (pm *PingMonitor) loadLatestReport() {
+	if pm.config.ReportsDirectory == "" {
+		return
+	}
+
+	entries, err := os.ReadDir(pm.config.ReportsDirectory)
+	if err != nil {
+		log.Printf("⚠️  Failed to read reports directory: %v", err)
+		return
+	}
+
+	// Find the most recent report file
+	var latestEntry os.DirEntry
+	var latestModTime time.Time
+	
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "report_") && strings.HasSuffix(entry.Name(), ".txt") {
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			if latestEntry == nil || info.ModTime().After(latestModTime) {
+				latestEntry = entry
+				latestModTime = info.ModTime()
+			}
+		}
+	}
+
+	if latestEntry == nil {
+		log.Printf("ℹ️  No previous reports found")
+		return
+	}
+
+	// Load the report
+	filepath := fmt.Sprintf("%s/%s", pm.config.ReportsDirectory, latestEntry.Name())
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		log.Printf("⚠️  Failed to load report %s: %v", latestEntry.Name(), err)
+		return
+	}
+
+	pm.lastEmailReportMu.Lock()
+	pm.lastEmailReport = string(data)
+	pm.lastEmailReportMu.Unlock()
+
+	log.Printf("📂 Loaded previous report: %s", latestEntry.Name())
 }
 
 // formatNumber formats a number with commas for readability
@@ -1021,6 +1342,17 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
 	body.WriteString(fmt.Sprintf("Next %s report: %s\n", schedule, pm.getNextReportTime().Format("Jan 2, 2006 15:04")))
 	
+	// Store the report text
+	reportText := body.String()
+	pm.lastEmailReportMu.Lock()
+	pm.lastEmailReport = reportText
+	pm.lastEmailReportMu.Unlock()
+	
+	// Save report to file if configured
+	if err := pm.saveReportToFile(reportText); err != nil {
+		log.Printf("⚠️  Failed to save report to file: %v", err)
+	}
+	
 	// Release the lock BEFORE sending email to prevent deadlock
 	pm.mu.RUnlock()
 
@@ -1044,10 +1376,12 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	_, _, err := pm.brevoClient.TransactionalEmailsApi.SendTransacEmail(ctx, email)
 	if err != nil {
 		log.Printf("❌ Failed to send summary report: %v", err)
+		pm.addLog(fmt.Sprintf("Failed to send summary report: %v", err))
 		return fmt.Errorf("failed to send summary report: %v", err)
 	}
 
 	log.Printf("📊 Summary report sent successfully")
+	pm.addLog("Summary report sent successfully")
 	
 	// Reset stats after sending report - acquire lock again
 	pm.mu.Lock()
@@ -1170,9 +1504,11 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		// Target just went down
 		pm.downTargets[target.TargetAddr] = true
 		pm.downSince[target.TargetAddr] = time.Now()
-		log.Printf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
+		logMsg := fmt.Sprintf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
+		log.Printf(logMsg)
 		pm.mu.Unlock()
 		
+		pm.addLog(logMsg)
 		pm.recordEvent(target, "down", 0, 0, 0)
 		
 		if pm.canSendAlert(target, "down") {
@@ -1188,9 +1524,11 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		downtime := time.Since(pm.downSince[target.TargetAddr])
 		delete(pm.downTargets, target.TargetAddr)
 		delete(pm.downSince, target.TargetAddr)
-		log.Printf("🟢 RECOVERY: %s is now UP (was down for %s)", formatTargetInfo(target), formatDuration(downtime))
+		logMsg := fmt.Sprintf("🟢 RECOVERY: %s is now UP (was down for %s)", formatTargetInfo(target), formatDuration(downtime))
+		log.Printf(logMsg)
 		pm.mu.Unlock()
 		
+		pm.addLog(logMsg)
 		pm.recordEvent(target, "up", rttMs, 0, downtime)
 		
 		if pm.canSendAlert(target, "up") {
@@ -1212,10 +1550,12 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		if hasPacketLoss && !hadPacketLoss {
 			pm.packetLossTargets[target.TargetAddr] = true
 			pm.packetLossSince[target.TargetAddr] = time.Now()
-			log.Printf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)", 
+			logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)", 
 				formatTargetInfo(target), packetLoss, packetLossThreshold)
+			log.Printf(logMsg)
 			pm.mu.Unlock()
 			
+			pm.addLog(logMsg)
 			pm.recordEvent(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0)
 			
 			if pm.canSendAlert(target, "packet_loss") {
@@ -1257,10 +1597,12 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 		if isSlow && !wasSlow {
 			pm.slowTargets[target.TargetAddr] = true
 			pm.slowSince[target.TargetAddr] = time.Now()
-			log.Printf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
+			logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)", 
 				formatTargetInfo(target), rttMs, threshold)
+			log.Printf(logMsg)
 			pm.mu.Unlock()
 			
+			pm.addLog(logMsg)
 			pm.recordEvent(target, "high_latency", rttMs, float64(threshold), 0)
 			
 			if pm.canSendAlert(target, "slow") {
@@ -1320,6 +1662,19 @@ func (pm *PingMonitor) Start() {
 			pm.config.SummaryReportTime)
 		pm.startSummaryReportScheduler()
 	}
+	
+	// Start HTTP server if enabled
+	if pm.config.HTTPEnabled {
+		log.Printf("   • HTTP Server: %s", pm.config.HTTPListen)
+		pm.startHTTPServer()
+	}
+	
+	// Load previous report if available
+	if pm.config.ReportsDirectory != "" {
+		log.Printf("   • Reports Directory: %s (keeping %d files)", 
+			pm.config.ReportsDirectory, pm.config.ReportsKeepCount)
+		pm.loadLatestReport()
+	}
 
 	// Shuffle targets to randomize order
 	targets := make([]Target, len(pm.config.Targets))
@@ -1377,10 +1732,247 @@ func (pm *PingMonitor) Start() {
 	select {}
 }
 
+// HTTP Handlers
+
+// getClientIP extracts the client IP address from the request
+func getClientIP(r *http.Request) string {
+	// Check X-Forwarded-For header first (for proxies)
+	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+		// Take the first IP in the list
+		ips := strings.Split(forwarded, ",")
+		return strings.TrimSpace(ips[0])
+	}
+	
+	// Fall back to RemoteAddr
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+// rateLimitMiddleware wraps a handler with rate limiting
+func (pm *PingMonitor) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if pm.httpRateLimiter != nil {
+			ip := getClientIP(r)
+			if !pm.httpRateLimiter.Allow(ip) {
+				http.Error(w, "Rate limit exceeded. Please try again later.", http.StatusTooManyRequests)
+				log.Printf("⚠️  Rate limit exceeded for IP: %s", ip)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+func (pm *PingMonitor) handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, "OK\n")
+}
+
+func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	data := struct {
+		Timestamp string
+	}{
+		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+	}
+	
+	if err := pm.templates.ExecuteTemplate(w, "reports", data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		log.Printf("⚠️  Template error: %v", err)
+	}
+}
+
+func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	logs := pm.getRecentLogs()
+	
+	// Get current status
+	pm.mu.RLock()
+	downCount := len(pm.downTargets)
+	slowCount := len(pm.slowTargets)
+	packetLossCount := len(pm.packetLossTargets)
+	pm.mu.RUnlock()
+	
+	// Helper to get CSS class
+	getClass := func(count int) string {
+		if count > 0 {
+			return "status-error"
+		}
+		return "status-good"
+	}
+	
+	getWarningClass := func(count int) string {
+		if count > 0 {
+			return "status-warning"
+		}
+		return "status-good"
+	}
+	
+	// Prepare formatted logs
+	type FormattedLog struct {
+		Timestamp string
+		Message   string
+	}
+	formattedLogs := make([]FormattedLog, len(logs))
+	for i, log := range logs {
+		formattedLogs[i] = FormattedLog{
+			Timestamp: log.Timestamp.Format("2006-01-02 15:04:05"),
+			Message:   log.Message,
+		}
+	}
+	
+	data := struct {
+		DownCount        int
+		SlowCount        int
+		PacketLossCount  int
+		TotalTargets     int
+		Timestamp        string
+		LogCount         int
+		Logs             []FormattedLog
+		DownClass        string
+		SlowClass        string
+		PacketLossClass  string
+	}{
+		DownCount:        downCount,
+		SlowCount:        slowCount,
+		PacketLossCount:  packetLossCount,
+		TotalTargets:     len(pm.config.Targets),
+		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		LogCount:         pm.config.HTTPLogLines,
+		Logs:             formattedLogs,
+		DownClass:        getClass(downCount),
+		SlowClass:        getWarningClass(slowCount),
+		PacketLossClass:  getWarningClass(packetLossCount),
+	}
+	
+	if err := pm.templates.ExecuteTemplate(w, "report_now", data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		log.Printf("⚠️  Template error: %v", err)
+	}
+}
+
+func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	logs := pm.getRecentLogs()
+	
+	// Get current status
+	pm.mu.RLock()
+	downCount := len(pm.downTargets)
+	slowCount := len(pm.slowTargets)
+	packetLossCount := len(pm.packetLossTargets)
+	pm.mu.RUnlock()
+	
+	// Get last email report
+	pm.lastEmailReportMu.RLock()
+	emailReport := pm.lastEmailReport
+	pm.lastEmailReportMu.RUnlock()
+	
+	// Helper to get CSS class
+	getClass := func(count int) string {
+		if count > 0 {
+			return "status-error"
+		}
+		return "status-good"
+	}
+	
+	getWarningClass := func(count int) string {
+		if count > 0 {
+			return "status-warning"
+		}
+		return "status-good"
+	}
+	
+	// Prepare formatted logs
+	type FormattedLog struct {
+		Timestamp string
+		Message   string
+	}
+	formattedLogs := make([]FormattedLog, len(logs))
+	for i, log := range logs {
+		formattedLogs[i] = FormattedLog{
+			Timestamp: log.Timestamp.Format("2006-01-02 15:04:05"),
+			Message:   log.Message,
+		}
+	}
+	
+	data := struct {
+		DownCount        int
+		SlowCount        int
+		PacketLossCount  int
+		TotalTargets     int
+		Timestamp        string
+		LogCount         int
+		Logs             []FormattedLog
+		DownClass        string
+		SlowClass        string
+		PacketLossClass  string
+		EmailReport      string
+		Schedule         string
+	}{
+		DownCount:        downCount,
+		SlowCount:        slowCount,
+		PacketLossCount:  packetLossCount,
+		TotalTargets:     len(pm.config.Targets),
+		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		LogCount:         pm.config.HTTPLogLines,
+		Logs:             formattedLogs,
+		DownClass:        getClass(downCount),
+		SlowClass:        getWarningClass(slowCount),
+		PacketLossClass:  getWarningClass(packetLossCount),
+		EmailReport:      emailReport,
+		Schedule:         pm.config.SummaryReportSchedule,
+	}
+	
+	if err := pm.templates.ExecuteTemplate(w, "report_all", data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		log.Printf("⚠️  Template error: %v", err)
+	}
+}
+
+// startHTTPServer starts the HTTP server
+func (pm *PingMonitor) startHTTPServer() {
+	if !pm.config.HTTPEnabled {
+		return
+	}
+
+	// Apply rate limiting middleware to handlers
+	http.HandleFunc("/status", pm.handleStatus)
+	http.HandleFunc("/reports", pm.rateLimitMiddleware(pm.handleReports))
+	http.HandleFunc("/report_now", pm.rateLimitMiddleware(pm.handleReportNow))
+	http.HandleFunc("/report_all", pm.rateLimitMiddleware(pm.handleReportAll))
+	
+	// Start rate limiter cleanup goroutine
+	if pm.httpRateLimiter != nil {
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				pm.httpRateLimiter.Cleanup()
+			}
+		}()
+	}
+
+	go func() {
+		log.Printf("🌐 Starting HTTP server on %s", pm.config.HTTPListen)
+		pm.addLog(fmt.Sprintf("Starting HTTP server on %s", pm.config.HTTPListen))
+		
+		if err := http.ListenAndServe(pm.config.HTTPListen, nil); err != nil {
+			log.Printf("❌ HTTP server error: %v", err)
+			pm.addLog(fmt.Sprintf("HTTP server error: %v", err))
+		}
+	}()
+}
+
 func loadConfig(filename string) (Config, error) {
 	var config Config
 	
-	data, err := ioutil.ReadFile(filename)
+	data, err := os.ReadFile(filename)
 	if err != nil {
 		return config, fmt.Errorf("failed to read config file: %v", err)
 	}
@@ -1390,6 +1982,102 @@ func loadConfig(filename string) (Config, error) {
 	}
 	
 	return config, nil
+}
+
+// initTemplates initializes HTML templates for HTTP handlers
+func initTemplates() *template.Template {
+	const (
+		reportsPage = `<!DOCTYPE html>
+<html><head><title>Ping Monitor Reports</title><style>
+body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
+h1 { color: #333; }
+.links { list-style: none; padding: 0; }
+.links li { margin: 15px 0; }
+.links a { display: inline-block; padding: 15px 25px; background: #4CAF50; color: white; text-decoration: none; border-radius: 5px; font-size: 16px; }
+.links a:hover { background: #45a049; }
+</style></head><body>
+<h1>📊 Ping Monitor Reports</h1>
+<ul class="links">
+<li><a href="/status">🟢 Status</a> - Service health check</li>
+<li><a href="/report_now">📋 Current State</a> - Recent logs and current status</li>
+<li><a href="/report_all">📊 Full Report</a> - Current state + last email report</li>
+</ul>
+<p style="color: #666; font-size: 14px; margin-top: 40px;">Generated: {{.Timestamp}}</p>
+</body></html>`
+
+		reportNowPage = `<!DOCTYPE html>
+<html><head><title>Current State - Ping Monitor</title><style>
+body { font-family: monospace; max-width: 1200px; margin: 20px auto; padding: 20px; background: #f5f5f5; }
+h1 { color: #333; }
+.status { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+.status-good { color: #4CAF50; }
+.status-warning { color: #FF9800; }
+.status-error { color: #f44336; }
+.logs { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 5px; overflow-x: auto; }
+.log-entry { margin: 5px 0; white-space: pre-wrap; word-wrap: break-word; }
+.timestamp { color: #569cd6; }
+.back-link { display: inline-block; margin: 10px 0; padding: 10px 20px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; }
+.back-link:hover { background: #0b7dda; }
+</style></head><body>
+<a href="/reports" class="back-link">← Back to Reports</a>
+<h1>📋 Current State</h1>
+<div class="status">
+<h2>Current Status</h2>
+<p><strong>Targets Down:</strong> <span class="{{.DownClass}}">{{.DownCount}}</span></p>
+<p><strong>Targets with High Latency:</strong> <span class="{{.SlowClass}}">{{.SlowCount}}</span></p>
+<p><strong>Targets with Packet Loss:</strong> <span class="{{.PacketLossClass}}">{{.PacketLossCount}}</span></p>
+<p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
+<p><strong>Report Generated:</strong> {{.Timestamp}}</p>
+</div>
+<h2>Recent Logs (Last {{.LogCount}} entries)</h2>
+<div class="logs">
+{{if .Logs}}{{range .Logs}}<div class="log-entry"><span class="timestamp">{{.Timestamp}}</span> {{.Message}}</div>
+{{end}}{{else}}<p>No logs available yet.</p>{{end}}
+</div>
+</body></html>`
+
+		reportAllPage = `<!DOCTYPE html>
+<html><head><title>Full Report - Ping Monitor</title><style>
+body { font-family: monospace; max-width: 1200px; margin: 20px auto; padding: 20px; background: #f5f5f5; }
+h1, h2 { color: #333; }
+.status { background: white; padding: 20px; border-radius: 5px; margin: 20px 0; }
+.status-good { color: #4CAF50; }
+.status-warning { color: #FF9800; }
+.status-error { color: #f44336; }
+.logs, .email-report { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 5px; overflow-x: auto; margin: 20px 0; }
+.log-entry { margin: 5px 0; white-space: pre-wrap; word-wrap: break-word; }
+.timestamp { color: #569cd6; }
+.back-link { display: inline-block; margin: 10px 0; padding: 10px 20px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; }
+.back-link:hover { background: #0b7dda; }
+pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; }
+</style></head><body>
+<a href="/reports" class="back-link">← Back to Reports</a>
+<h1>📊 Full Report</h1>
+<div class="status">
+<h2>Current Status</h2>
+<p><strong>Targets Down:</strong> <span class="{{.DownClass}}">{{.DownCount}}</span></p>
+<p><strong>Targets with High Latency:</strong> <span class="{{.SlowClass}}">{{.SlowCount}}</span></p>
+<p><strong>Targets with Packet Loss:</strong> <span class="{{.PacketLossClass}}">{{.PacketLossCount}}</span></p>
+<p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
+<p><strong>Report Generated:</strong> {{.Timestamp}}</p>
+</div>
+<h2>Recent Logs (Last {{.LogCount}} entries)</h2>
+<div class="logs">
+{{if .Logs}}{{range .Logs}}<div class="log-entry"><span class="timestamp">{{.Timestamp}}</span> {{.Message}}</div>
+{{end}}{{else}}<p>No logs available yet.</p>{{end}}
+</div>
+<h2>Last Email Summary Report</h2>
+<div class="email-report">
+{{if .EmailReport}}<pre>{{.EmailReport}}</pre>{{else}}<p>No email report generated yet. Reports are generated based on your schedule ({{.Schedule}}).</p>{{end}}
+</div>
+</body></html>`
+	)
+
+	tmpl := template.Must(template.New("reports").Parse(reportsPage))
+	template.Must(tmpl.New("report_now").Parse(reportNowPage))
+	template.Must(tmpl.New("report_all").Parse(reportAllPage))
+	
+	return tmpl
 }
 
 func main() {
@@ -1406,27 +2094,20 @@ func main() {
 		log.Fatalf("❌ %v", err)
 	}
 	
-	log.Printf("✅ Configuration validated successfully")
+	log.Printf("✅ Configuration loaded and validated successfully")
 	
-	// Set default ping count
-	if config.PingCount <= 0 {
-		config.PingCount = 3
-		log.Printf("ℹ️  Ping count not specified, using default: %d", config.PingCount)
-	}
-
-	// Create monitor
+	// Initialize and start ping monitor
 	monitor := NewPingMonitor(config)
-
+	
 	// Handle graceful shutdown
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	
 	go func() {
-		<-c
-		log.Println("⏹️  Shutting down ping monitor gracefully...")
+		<-sigChan
+		log.Printf("👋 Shutting down gracefully...")
 		os.Exit(0)
 	}()
-
-	// Start monitoring
+	
 	monitor.Start()
 }

@@ -11,6 +11,13 @@
   "summary_report_enabled": true,
   "summary_report_schedule": "daily",
   "summary_report_time": "09:00",
+  "http_enabled": true,
+  "http_listen": "127.0.0.1:8080",
+  "http_log_lines": 20,
+  "http_rate_limit_per_minute": 60,
+  "reports_directory": "./reports",
+  "reports_keep_count": 10,
+  "log_buffer_flush_seconds": 5,
   "email": {
     "api_key": "your-brevo-api-key-here",
     "from": "monitor@yourdomain.com",
