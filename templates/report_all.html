@@ -222,14 +222,41 @@ pre {
 		top: 15px;
 	}
 	/* Target list mobile optimization */
-	.status > div {
+	.target-item {
 		flex-direction: column !important;
 		align-items: flex-start !important;
 		padding: 10px 0 !important;
+		position: relative !important;
+		clear: both !important;
 	}
-	.status > div > div:last-child {
-		margin-top: 8px;
+	.target-item > div:first-child {
+		position: relative !important;
+		z-index: 1;
+		width: 100% !important;
+		margin-bottom: 8px;
+	}
+	.target-item > div:last-child {
+		margin-top: 0 !important;
 		flex-wrap: wrap;
+		position: relative !important;
+		z-index: 1;
+		width: 100%;
+		gap: 6px !important;
+	}
+	.target-item span {
+		font-size: 10px !important;
+		padding: 3px 10px !important;
+	}
+	/* Fix overlapping text issues */
+	.status, .logs, .email-report, h2 {
+		position: relative;
+		z-index: auto;
+		clear: both;
+	}
+}
+@media (min-width: 769px) {
+	.status > div {
+		border-bottom: 1px solid #404040;
 	}
 }
 </style></head><body>
@@ -245,17 +272,17 @@ pre {
 <p><strong>Report Generated:</strong> {{.Timestamp}}</p>
 </div>
 <h2>Monitored Targets ({{.TotalTargets}} total)</h2>
-<div class="status">
-{{range .Targets}}<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #404040;">
-<div style="flex: 1;">
-<strong>{{.Name}}</strong><br>
-<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
+<div class="status" style="overflow: hidden;">
+{{range .Targets}}<div class="target-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #404040;">
+<div style="flex: 1; min-width: 0; overflow: hidden;">
+<strong style="display: block; overflow: hidden; text-overflow: ellipsis;">{{.Name}}</strong>
+<span style="color: #888; font-size: 12px; display: block; overflow: hidden; text-overflow: ellipsis;">{{.Label}}: {{.Address}}</span>
 </div>
-<div style="display: flex; gap: 8px;">
-{{if .IsDown}}<span style="background: #5d1f1f; color: #f44336; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">DOWN</span>{{end}}
-{{if .IsSlow}}<span style="background: #5d4a1f; color: #FF9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">HIGH LATENCY</span>{{end}}
-{{if .HasPacketLoss}}<span style="background: #5d3a1f; color: #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">PACKET LOSS</span>{{end}}
-{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span style="background: #1f5d2f; color: #4CAF50; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">OK</span>{{end}}
+<div style="display: flex; gap: 8px; flex-shrink: 0;">
+{{if .IsDown}}<span style="background: #5d1f1f; color: #f44336; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap;">DOWN</span>{{end}}
+{{if .IsSlow}}<span style="background: #5d4a1f; color: #FF9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap;">HIGH LATENCY</span>{{end}}
+{{if .HasPacketLoss}}<span style="background: #5d3a1f; color: #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap;">PACKET LOSS</span>{{end}}
+{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span style="background: #1f5d2f; color: #4CAF50; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap;">OK</span>{{end}}
 </div>
 </div>
 {{end}}

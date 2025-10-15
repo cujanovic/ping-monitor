@@ -140,17 +140,23 @@
 		.stat-label, .stat-value {
 			font-size: 14px;
 		}
-		.btn {
-			display: block;
-			width: 100%;
-			margin: 8px 0;
-			padding: 14px 20px;
-			font-size: 15px;
-		}
-		.version {
-			font-size: 11px;
-			margin-top: 25px;
-		}
+	.btn {
+		display: block;
+		width: calc(100% - 20px);
+		margin: 8px auto;
+		padding: 12px 20px;
+		font-size: 14px;
+		text-align: center;
+		box-sizing: border-box;
+	}
+	.btn-container {
+		width: 100%;
+		padding: 0 10px;
+	}
+	.version {
+		font-size: 11px;
+		margin-top: 25px;
+	}
 	}
 </style>
 </head>
@@ -181,13 +187,13 @@
 			</div>
 		</div>
 		
-		<div style="margin-top: 30px;">
-			<a href="/reports" class="btn btn-primary">📊 View Reports</a>
-			<a href="/status" class="btn btn-secondary">🟢 Status Check</a>
-		</div>
-		
-		<p class="version">Ping Monitor v1.0 • {{.Timestamp}}</p>
+	<div class="btn-container" style="margin-top: 30px;">
+		<a href="/reports" class="btn btn-primary">📊 View Reports</a>
+		<a href="/status" class="btn btn-secondary">🟢 Status Check</a>
 	</div>
-</body>
+		
+		<p class="version">Ping Monitor v1.0 • Server time:{{.Timestamp}}</p>
+	</div>
+</body> 
 </html>
 
