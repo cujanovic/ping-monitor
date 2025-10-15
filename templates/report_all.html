@@ -156,6 +156,82 @@ pre {
 	text-align: center;
 	color: #b0b0b0;
 }
+
+/* Mobile Optimizations */
+@media (max-width: 768px) {
+	body {
+		padding: 10px;
+	}
+	.container {
+		padding: 20px;
+		border-radius: 10px;
+	}
+	h1 {
+		font-size: 24px;
+		margin: 0 0 20px 0;
+	}
+	h2 {
+		font-size: 16px;
+		margin: 20px 0 10px 0;
+	}
+	.status, .logs, .email-report {
+		padding: 15px;
+		font-size: 12px;
+		max-height: 300px;
+	}
+	.status p {
+		margin: 8px 0;
+		font-size: 13px;
+	}
+	.log-entry {
+		font-size: 11px;
+		line-height: 1.5;
+		margin: 6px 0;
+	}
+	.timestamp {
+		display: block;
+		margin-bottom: 2px;
+		font-size: 10px;
+	}
+	pre {
+		font-size: 11px;
+		line-height: 1.5;
+	}
+	.breadcrumb {
+		font-size: 12px;
+		margin-bottom: 10px;
+	}
+	.report-header {
+		padding: 15px;
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.report-header h3 {
+		font-size: 14px;
+		margin-bottom: 8px;
+	}
+	.report-content {
+		padding: 15px;
+		max-height: 400px;
+		font-size: 11px;
+	}
+	.toggle-icon {
+		font-size: 20px;
+		position: absolute;
+		right: 15px;
+		top: 15px;
+	}
+	/* Target list mobile optimization */
+	.status > div {
+		flex-direction: column !important;
+		align-items: flex-start !important;
+		padding: 10px 0 !important;
+	}
+	.status > div > div:last-child {
+		margin-top: 8px;
+		flex-wrap: wrap;
+	}
+}
 </style></head><body>
 <div class="breadcrumb">🏠 <a href="/">Home</a> / 📊 <a href="/reports">Reports</a> / 📊 Full Report</div>
 <div class="container">
@@ -167,6 +243,22 @@ pre {
 <p><strong>Targets with Packet Loss:</strong> <span class="{{.PacketLossClass}}">{{.PacketLossCount}}</span></p>
 <p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
 <p><strong>Report Generated:</strong> {{.Timestamp}}</p>
+</div>
+<h2>Monitored Targets ({{.TotalTargets}} total)</h2>
+<div class="status">
+{{range .Targets}}<div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #404040;">
+<div style="flex: 1;">
+<strong>{{.Name}}</strong><br>
+<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
+</div>
+<div style="display: flex; gap: 8px;">
+{{if .IsDown}}<span style="background: #5d1f1f; color: #f44336; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">DOWN</span>{{end}}
+{{if .IsSlow}}<span style="background: #5d4a1f; color: #FF9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">HIGH LATENCY</span>{{end}}
+{{if .HasPacketLoss}}<span style="background: #5d3a1f; color: #ff9800; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">PACKET LOSS</span>{{end}}
+{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span style="background: #1f5d2f; color: #4CAF50; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">OK</span>{{end}}
+</div>
+</div>
+{{end}}
 </div>
 <h2>Recent Logs (Last {{.LogCount}} entries)</h2>
 <div class="logs">

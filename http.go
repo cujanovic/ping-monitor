@@ -199,6 +199,30 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	// Build targets list with status
+	type TargetInfo struct {
+		Name       string
+		Address    string
+		Label      string
+		IsDown     bool
+		IsSlow     bool
+		HasPacketLoss bool
+	}
+	
+	pm.mu.RLock()
+	targets := make([]TargetInfo, len(pm.config.Targets))
+	for i, target := range pm.config.Targets {
+		targets[i] = TargetInfo{
+			Name:          target.Name,
+			Address:       target.TargetAddr,
+			Label:         getTargetLabel(target.TargetAddr),
+			IsDown:        pm.downTargets[target.TargetAddr],
+			IsSlow:        pm.slowTargets[target.TargetAddr],
+			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+		}
+	}
+	pm.mu.RUnlock()
+	
 	data := struct {
 		DownCount        int
 		SlowCount        int
@@ -210,6 +234,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		DownClass        string
 		SlowClass        string
 		PacketLossClass  string
+		Targets          []TargetInfo
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -221,6 +246,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		DownClass:        getClass(downCount),
 		SlowClass:        getWarningClass(slowCount),
 		PacketLossClass:  getWarningClass(packetLossCount),
+		Targets:          targets,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -286,6 +312,30 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	
+	// Build targets list with status
+	type TargetInfo struct {
+		Name       string
+		Address    string
+		Label      string
+		IsDown     bool
+		IsSlow     bool
+		HasPacketLoss bool
+	}
+	
+	pm.mu.RLock()
+	targets := make([]TargetInfo, len(pm.config.Targets))
+	for i, target := range pm.config.Targets {
+		targets[i] = TargetInfo{
+			Name:          target.Name,
+			Address:       target.TargetAddr,
+			Label:         getTargetLabel(target.TargetAddr),
+			IsDown:        pm.downTargets[target.TargetAddr],
+			IsSlow:        pm.slowTargets[target.TargetAddr],
+			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+		}
+	}
+	pm.mu.RUnlock()
+	
 	data := struct {
 		DownCount        int
 		SlowCount        int
@@ -301,6 +351,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		Schedule         string
 		AllReports       []ReportWithContent
 		ReportsDir       string
+		Targets          []TargetInfo
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -316,6 +367,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		Schedule:         pm.config.SummaryReportSchedule,
 		AllReports:       allReportsContent,
 		ReportsDir:       pm.config.ReportsDirectory,
+		Targets:          targets,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {
