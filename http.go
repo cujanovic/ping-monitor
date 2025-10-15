@@ -408,11 +408,16 @@ func (pm *PingMonitor) startHTTPServer() {
 		return
 	}
 
-	http.HandleFunc("/", pm.rateLimitMiddleware(pm.handleRoot))
+	// Public routes (no auth required)
 	http.HandleFunc("/status", pm.handleStatus)
-	http.HandleFunc("/reports", pm.rateLimitMiddleware(pm.handleReports))
-	http.HandleFunc("/report_now", pm.rateLimitMiddleware(pm.handleReportNow))
-	http.HandleFunc("/report_all", pm.rateLimitMiddleware(pm.handleReportAll))
+	http.HandleFunc("/login", pm.handleLogin)
+	http.HandleFunc("/logout", pm.handleLogout)
+	
+	// Protected routes (require auth if enabled)
+	http.HandleFunc("/", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot)))
+	http.HandleFunc("/reports", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReports)))
+	http.HandleFunc("/report_now", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportNow)))
+	http.HandleFunc("/report_all", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportAll)))
 	
 	if pm.httpRateLimiter != nil {
 		go func() {

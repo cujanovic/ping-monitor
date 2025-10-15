@@ -28,6 +28,14 @@ type Config struct {
 	ReportsDirectory           string   `json:"reports_directory"`
 	ReportsKeepCount           int      `json:"reports_keep_count"`
 	LogBufferFlushSeconds      int      `json:"log_buffer_flush_seconds"`
+	AuthEnabled                bool     `json:"auth_enabled"`
+	PasswordHash               string   `json:"password_hash"`
+	Argon2Memory               uint32   `json:"argon2_memory"`
+	Argon2Time                 uint32   `json:"argon2_time"`
+	Argon2Threads              uint8    `json:"argon2_threads"`
+	SessionTimeoutMinutes      int      `json:"session_timeout_minutes"`
+	MaxLoginAttempts           int      `json:"max_login_attempts"`
+	LockoutDurationMinutes     int      `json:"lockout_duration_minutes"`
 	Email                      Email    `json:"email"`
 	Targets                    []Target `json:"targets"`
 }
@@ -133,6 +141,39 @@ func ValidateConfig(config Config) error {
 			if len(parts) != 2 {
 				errors = append(errors, "summary_report_time must be in HH:MM format")
 			}
+		}
+	}
+
+	// Validate authentication settings
+	if config.AuthEnabled {
+		if config.PasswordHash == "" {
+			errors = append(errors, "password_hash cannot be empty when auth_enabled is true")
+		} else if !strings.HasPrefix(config.PasswordHash, "$argon2id$") {
+			errors = append(errors, "password_hash must be a valid Argon2id hash")
+		}
+		if config.Argon2Memory < 8192 {
+			errors = append(errors, "argon2_memory must be at least 8192 KB (8 MB)")
+		}
+		if config.Argon2Memory > 1048576 {
+			errors = append(errors, "argon2_memory should not exceed 1048576 KB (1 GB)")
+		}
+		if config.Argon2Time < 1 || config.Argon2Time > 10 {
+			errors = append(errors, "argon2_time must be between 1 and 10")
+		}
+		if config.Argon2Threads < 1 || config.Argon2Threads > 16 {
+			errors = append(errors, "argon2_threads must be between 1 and 16")
+		}
+		if config.SessionTimeoutMinutes < 5 {
+			errors = append(errors, "session_timeout_minutes must be at least 5")
+		}
+		if config.SessionTimeoutMinutes > 10080 {
+			errors = append(errors, "session_timeout_minutes should not exceed 10080 (1 week)")
+		}
+		if config.MaxLoginAttempts < 3 {
+			errors = append(errors, "max_login_attempts must be at least 3")
+		}
+		if config.LockoutDurationMinutes < 1 {
+			errors = append(errors, "lockout_duration_minutes must be at least 1")
 		}
 	}
 

@@ -30,6 +30,7 @@ type PingMonitor struct {
 	lastEmailReport    string
 	lastEmailReportMu  sync.RWMutex
 	httpRateLimiter    *HTTPRateLimiter
+	sessionManager     *SessionManager
 	templates          *template.Template
 	brevoClient        *brevo.APIClient
 	mu                 sync.RWMutex
@@ -95,6 +96,26 @@ func NewPingMonitor(config Config) *PingMonitor {
 		}
 	}
 
+	// Set auth defaults
+	if config.Argon2Memory == 0 {
+		config.Argon2Memory = 65536 // 64 MB
+	}
+	if config.Argon2Time == 0 {
+		config.Argon2Time = 3
+	}
+	if config.Argon2Threads == 0 {
+		config.Argon2Threads = 4
+	}
+	if config.SessionTimeoutMinutes == 0 {
+		config.SessionTimeoutMinutes = 60
+	}
+	if config.MaxLoginAttempts == 0 {
+		config.MaxLoginAttempts = 5
+	}
+	if config.LockoutDurationMinutes == 0 {
+		config.LockoutDurationMinutes = 15
+	}
+
 	// Initialize HTTP rate limiter
 	var rateLimiter *HTTPRateLimiter
 	if config.HTTPRateLimitPerMinute > 0 {
@@ -104,6 +125,9 @@ func NewPingMonitor(config Config) *PingMonitor {
 			window:   time.Minute,
 		}
 	}
+
+	// Initialize session manager
+	sessionManager := NewSessionManager(&config)
 
 	// Initialize HTML templates
 	templates := initTemplates()
@@ -123,6 +147,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		logBuffer:          make([]LogEntry, 0, config.HTTPLogLines),
 		logPendingBuffer:   make([]LogEntry, 0),
 		httpRateLimiter:    rateLimiter,
+		sessionManager:     sessionManager,
 		templates:          templates,
 		brevoClient:        brevoClient,
 		semaphore:          semaphore,
