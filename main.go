@@ -725,6 +725,30 @@ func (pm *PingMonitor) cleanupOldReportsIfNeeded() {
 	}
 }
 
+// getAllReports returns a list of all available reports
+func (pm *PingMonitor) getAllReports() []string {
+	if pm.config.ReportsDirectory == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(pm.config.ReportsDirectory)
+	if err != nil {
+		return nil
+	}
+
+	var reports []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "report_") && strings.HasSuffix(entry.Name(), ".txt") {
+			reports = append(reports, entry.Name())
+		}
+	}
+
+	// Sort by name (which is timestamp-based) in reverse order (newest first)
+	sort.Sort(sort.Reverse(sort.StringSlice(reports)))
+	
+	return reports
+}
+
 // loadLatestReport loads the most recent report from disk
 func (pm *PingMonitor) loadLatestReport() {
 	if pm.config.ReportsDirectory == "" {
@@ -756,6 +780,7 @@ func (pm *PingMonitor) loadLatestReport() {
 
 	if latestEntry == nil {
 		log.Printf("ℹ️  No previous reports found")
+		pm.addLog("ℹ️  No previous reports found")
 		return
 	}
 
@@ -771,7 +796,9 @@ func (pm *PingMonitor) loadLatestReport() {
 	pm.lastEmailReport = string(data)
 	pm.lastEmailReportMu.Unlock()
 
-	log.Printf("📂 Loaded previous report: %s", latestEntry.Name())
+	msg := fmt.Sprintf("📂 Loaded previous report: %s", latestEntry.Name())
+	log.Printf(msg)
+	pm.addLog(msg)
 }
 
 // formatNumber formats a number with commas for readability
@@ -1444,8 +1471,10 @@ func (pm *PingMonitor) startSummaryReportScheduler() {
 			nextReport := pm.getNextReportTime()
 			duration := time.Until(nextReport)
 			
-			log.Printf("📅 Next summary report scheduled for: %s (in %s)", 
+			msg := fmt.Sprintf("📅 Next summary report scheduled for: %s (in %s)", 
 				nextReport.Format("2006-01-02 15:04:05"), formatDuration(duration))
+			log.Printf(msg)
+			pm.addLog(msg)
 			
 			time.Sleep(duration)
 			
@@ -1647,32 +1676,55 @@ func (pm *PingMonitor) Start() {
 	}
 
 	log.Printf("🚀 Starting Ping Monitor with the following settings:")
+	pm.addLog("🚀 Starting Ping Monitor")
+	
 	log.Printf("   • Targets: %d", numTargets)
+	pm.addLog(fmt.Sprintf("   • Targets: %d", numTargets))
+	
 	log.Printf("   • Ping Interval: %d seconds", pm.config.PingIntervalSeconds)
+	pm.addLog(fmt.Sprintf("   • Ping Interval: %d seconds", pm.config.PingIntervalSeconds))
+	
 	log.Printf("   • Ping Count: %d", pm.config.PingCount)
+	pm.addLog(fmt.Sprintf("   • Ping Count: %d", pm.config.PingCount))
+	
 	log.Printf("   • Default Timeout: %d seconds", pm.config.DefaultTimeoutSeconds)
+	pm.addLog(fmt.Sprintf("   • Default Timeout: %d seconds", pm.config.DefaultTimeoutSeconds))
+	
 	log.Printf("   • Packet Loss Threshold: %d%%", pm.config.PacketLossThresholdPercent)
+	pm.addLog(fmt.Sprintf("   • Packet Loss Threshold: %d%%", pm.config.PacketLossThresholdPercent))
+	
 	log.Printf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes)
+	pm.addLog(fmt.Sprintf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes))
+	
 	log.Printf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour)
+	pm.addLog(fmt.Sprintf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour))
+	
 	log.Printf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings)
+	pm.addLog(fmt.Sprintf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings))
 	
 	if pm.config.SummaryReportEnabled {
-		log.Printf("   • Summary Reports: %s at %s", 
+		msg := fmt.Sprintf("   • Summary Reports: %s at %s", 
 			strings.Title(pm.config.SummaryReportSchedule), 
 			pm.config.SummaryReportTime)
+		log.Printf(msg)
+		pm.addLog(msg)
 		pm.startSummaryReportScheduler()
 	}
 	
 	// Start HTTP server if enabled
 	if pm.config.HTTPEnabled {
-		log.Printf("   • HTTP Server: %s", pm.config.HTTPListen)
+		msg := fmt.Sprintf("   • HTTP Server: %s", pm.config.HTTPListen)
+		log.Printf(msg)
+		pm.addLog(msg)
 		pm.startHTTPServer()
 	}
 	
 	// Load previous report if available
 	if pm.config.ReportsDirectory != "" {
-		log.Printf("   • Reports Directory: %s (keeping %d files)", 
+		msg := fmt.Sprintf("   • Reports Directory: %s (keeping %d files)", 
 			pm.config.ReportsDirectory, pm.config.ReportsKeepCount)
+		log.Printf(msg)
+		pm.addLog(msg)
 		pm.loadLatestReport()
 	}
 
@@ -1684,13 +1736,16 @@ func (pm *PingMonitor) Start() {
 		targets[i], targets[j] = targets[j], targets[i]
 	})
 	log.Printf("🔀 Targets shuffled for randomized monitoring order")
+	pm.addLog("🔀 Targets shuffled for randomized monitoring order")
 
 	// Calculate delay between checks
 	intervalSeconds := time.Duration(pm.config.PingIntervalSeconds) * time.Second
 	delayBetweenTargets := intervalSeconds / time.Duration(numTargets)
 
-	log.Printf("📊 Distributing pings with %v delay between targets for continuous monitoring", 
+	msg := fmt.Sprintf("📊 Distributing pings with %v delay between targets for continuous monitoring", 
 		delayBetweenTargets)
+	log.Printf(msg)
+	pm.addLog(msg)
 
 	// Start monitoring goroutines with graceful degradation
 	for i, target := range targets {
@@ -1727,6 +1782,7 @@ func (pm *PingMonitor) Start() {
 	}
 
 	log.Printf("✅ All monitoring goroutines started with graceful degradation")
+	pm.addLog("✅ All monitoring goroutines started with graceful degradation")
 
 	// Keep main goroutine running
 	select {}
@@ -1764,6 +1820,160 @@ func (pm *PingMonitor) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFu
 		}
 		next(w, r)
 	}
+}
+
+func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
+	// Only handle root path, not other paths
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	uptime := time.Since(pm.statsStartTime)
+	
+	html := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Ping Monitor Service</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+			background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+			margin: 0;
+			padding: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.container {
+			background: white;
+			border-radius: 20px;
+			box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+			padding: 60px 40px;
+			text-align: center;
+			max-width: 600px;
+			margin: 20px;
+		}
+		h1 {
+			color: #333;
+			font-size: 42px;
+			margin: 0 0 10px 0;
+			font-weight: 700;
+		}
+		.emoji {
+			font-size: 64px;
+			margin-bottom: 20px;
+		}
+		.subtitle {
+			color: #666;
+			font-size: 18px;
+			margin-bottom: 40px;
+		}
+		.stats {
+			background: #f8f9fa;
+			border-radius: 10px;
+			padding: 20px;
+			margin: 30px 0;
+		}
+		.stat-row {
+			display: flex;
+			justify-content: space-between;
+			padding: 10px 0;
+			border-bottom: 1px solid #e0e0e0;
+		}
+		.stat-row:last-child {
+			border-bottom: none;
+		}
+		.stat-label {
+			color: #666;
+			font-weight: 500;
+		}
+		.stat-value {
+			color: #333;
+			font-weight: 600;
+		}
+		.status-badge {
+			display: inline-block;
+			padding: 8px 16px;
+			border-radius: 20px;
+			font-weight: 600;
+			font-size: 14px;
+			margin: 20px 0;
+		}
+		.status-online {
+			background: #d4edda;
+			color: #155724;
+		}
+		.btn {
+			display: inline-block;
+			padding: 15px 30px;
+			margin: 10px;
+			border-radius: 10px;
+			text-decoration: none;
+			font-weight: 600;
+			transition: transform 0.2s, box-shadow 0.2s;
+		}
+		.btn:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+		}
+		.btn-primary {
+			background: #667eea;
+			color: white;
+		}
+		.btn-secondary {
+			background: #48bb78;
+			color: white;
+		}
+		.version {
+			color: #999;
+			font-size: 12px;
+			margin-top: 30px;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="emoji">📡</div>
+		<h1>Ping Monitor Service</h1>
+		<p class="subtitle">Network Monitoring & Alerting System</p>
+		
+		<div class="status-badge status-online">● Service Online</div>
+		
+		<div class="stats">
+			<div class="stat-row">
+				<span class="stat-label">Targets Monitored</span>
+				<span class="stat-value">` + fmt.Sprintf("%d", len(pm.config.Targets)) + `</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Service Uptime</span>
+				<span class="stat-value">` + formatDuration(uptime) + `</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Check Interval</span>
+				<span class="stat-value">` + fmt.Sprintf("%d seconds", pm.config.PingIntervalSeconds) + `</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Report Schedule</span>
+				<span class="stat-value">` + fmt.Sprintf("%s at %s", strings.Title(pm.config.SummaryReportSchedule), pm.config.SummaryReportTime) + `</span>
+			</div>
+		</div>
+		
+		<div style="margin-top: 30px;">
+			<a href="/reports" class="btn btn-primary">📊 View Reports</a>
+			<a href="/status" class="btn btn-secondary">🟢 Status Check</a>
+		</div>
+		
+		<p class="version">Ping Monitor v1.0 • ` + time.Now().Format("2006-01-02 15:04:05") + `</p>
+	</div>
+</body>
+</html>`
+	
+	fmt.Fprintf(w, html)
 }
 
 func (pm *PingMonitor) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -1873,6 +2083,27 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	emailReport := pm.lastEmailReport
 	pm.lastEmailReportMu.RUnlock()
 	
+	// Get all available reports with their content
+	type ReportWithContent struct {
+		Filename string
+		Content  string
+	}
+	
+	var allReportsContent []ReportWithContent
+	if pm.config.ReportsDirectory != "" {
+		reportFiles := pm.getAllReports()
+		for _, filename := range reportFiles {
+			filepath := fmt.Sprintf("%s/%s", pm.config.ReportsDirectory, filename)
+			data, err := os.ReadFile(filepath)
+			if err == nil {
+				allReportsContent = append(allReportsContent, ReportWithContent{
+					Filename: filename,
+					Content:  string(data),
+				})
+			}
+		}
+	}
+	
 	// Helper to get CSS class
 	getClass := func(count int) string {
 		if count > 0 {
@@ -1914,6 +2145,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		PacketLossClass  string
 		EmailReport      string
 		Schedule         string
+		AllReports       []ReportWithContent
+		ReportsDir       string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -1927,6 +2160,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		PacketLossClass:  getWarningClass(packetLossCount),
 		EmailReport:      emailReport,
 		Schedule:         pm.config.SummaryReportSchedule,
+		AllReports:       allReportsContent,
+		ReportsDir:       pm.config.ReportsDirectory,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all", data); err != nil {
@@ -1942,6 +2177,7 @@ func (pm *PingMonitor) startHTTPServer() {
 	}
 
 	// Apply rate limiting middleware to handlers
+	http.HandleFunc("/", pm.rateLimitMiddleware(pm.handleRoot))
 	http.HandleFunc("/status", pm.handleStatus)
 	http.HandleFunc("/reports", pm.rateLimitMiddleware(pm.handleReports))
 	http.HandleFunc("/report_now", pm.rateLimitMiddleware(pm.handleReportNow))
@@ -2044,12 +2280,40 @@ h1, h2 { color: #333; }
 .status-good { color: #4CAF50; }
 .status-warning { color: #FF9800; }
 .status-error { color: #f44336; }
-.logs, .email-report { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 5px; overflow-x: auto; margin: 20px 0; }
+.logs, .email-report, .reports-list { background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 5px; overflow-x: auto; margin: 20px 0; }
 .log-entry { margin: 5px 0; white-space: pre-wrap; word-wrap: break-word; }
 .timestamp { color: #569cd6; }
 .back-link { display: inline-block; margin: 10px 0; padding: 10px 20px; background: #2196F3; color: white; text-decoration: none; border-radius: 5px; }
 .back-link:hover { background: #0b7dda; }
 pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; }
+.report-header { 
+	background: #2d2d2d; 
+	padding: 15px 20px; 
+	margin-top: 20px; 
+	border-radius: 5px 5px 0 0; 
+	cursor: pointer; 
+	display: flex; 
+	justify-content: space-between; 
+	align-items: center;
+	user-select: none;
+}
+.report-header:hover { background: #3d3d3d; }
+.report-header h3 { color: #4CAF50; margin: 0; }
+.report-content { 
+	background: #1e1e1e; 
+	color: #d4d4d4; 
+	padding: 20px; 
+	border-radius: 0 0 5px 5px; 
+	overflow-x: auto; 
+	display: none;
+}
+.report-content.active { display: block; }
+.toggle-icon { 
+	color: #4CAF50; 
+	font-size: 20px; 
+	transition: transform 0.3s;
+}
+.toggle-icon.rotated { transform: rotate(180deg); }
 </style></head><body>
 <a href="/reports" class="back-link">← Back to Reports</a>
 <h1>📊 Full Report</h1>
@@ -2070,6 +2334,42 @@ pre { white-space: pre-wrap; word-wrap: break-word; margin: 0; }
 <div class="email-report">
 {{if .EmailReport}}<pre>{{.EmailReport}}</pre>{{else}}<p>No email report generated yet. Reports are generated based on your schedule ({{.Schedule}}).</p>{{end}}
 </div>
+<h2>All Available Reports ({{len .AllReports}} total)</h2>
+{{if .AllReports}}{{range $index, $report := .AllReports}}<div class="report-item">
+<div class="report-header" onclick="toggleReport({{$index}})">
+<h3>📄 {{$report.Filename}}</h3>
+<span class="toggle-icon" id="icon-{{$index}}">▼</span>
+</div>
+<div class="report-content{{if eq $index 0}} active{{end}}" id="report-{{$index}}">
+<pre>{{$report.Content}}</pre>
+</div>
+</div>
+{{end}}{{else}}<div class="reports-list"><p>No saved reports available. Reports directory: {{.ReportsDir}}</p></div>{{end}}
+<script>
+function toggleReport(index) {
+	const content = document.getElementById('report-' + index);
+	const icon = document.getElementById('icon-' + index);
+	
+	if (content.classList.contains('active')) {
+		content.classList.remove('active');
+		icon.textContent = '▼';
+		icon.classList.remove('rotated');
+	} else {
+		content.classList.add('active');
+		icon.textContent = '▲';
+		icon.classList.add('rotated');
+	}
+}
+
+// Initialize first report as expanded
+window.addEventListener('DOMContentLoaded', function() {
+	const firstIcon = document.getElementById('icon-0');
+	if (firstIcon) {
+		firstIcon.textContent = '▲';
+		firstIcon.classList.add('rotated');
+	}
+});
+</script>
 </body></html>`
 	)
 
@@ -2098,7 +2398,7 @@ func main() {
 	
 	// Initialize and start ping monitor
 	monitor := NewPingMonitor(config)
-	
+
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -2108,6 +2408,6 @@ func main() {
 		log.Printf("👋 Shutting down gracefully...")
 		os.Exit(0)
 	}()
-	
+
 	monitor.Start()
 }
