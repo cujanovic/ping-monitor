@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html><head><title>Current State - Ping Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+	font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+	background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+	margin: 0;
+	padding: 20px;
+	min-height: 100vh;
+	color: #e0e0e0;
+}
+.breadcrumb {
+	max-width: 800px;
+	margin: 0 auto 20px;
+	font-size: 14px;
+	color: #b0b0b0;
+}
+.breadcrumb a {
+	color: #4CAF50;
+	text-decoration: none;
+}
+.breadcrumb a:hover {
+	text-decoration: underline;
+}
+.container {
+	max-width: 800px;
+	margin: 0 auto;
+	background: #2d2d2d;
+	border-radius: 20px;
+	box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+	padding: 40px;
+}
+h1 {
+	color: #e0e0e0;
+	font-size: 32px;
+	margin: 0 0 30px 0;
+	text-align: center;
+}
+h2 {
+	color: #e0e0e0;
+	font-size: 20px;
+	margin: 30px 0 15px 0;
+	border-bottom: 2px solid #404040;
+	padding-bottom: 10px;
+}
+.status {
+	background: #1e1e1e;
+	padding: 25px;
+	border-radius: 15px;
+	margin: 20px 0;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+.status p {
+	margin: 12px 0;
+	font-size: 14px;
+}
+.status-good { color: #4CAF50; font-weight: 600; }
+.status-warning { color: #FF9800; font-weight: 600; }
+.status-error { color: #f44336; font-weight: 600; }
+.logs {
+	background: #1e1e1e;
+	color: #d4d4d4;
+	padding: 25px;
+	border-radius: 15px;
+	overflow-x: auto;
+	margin: 20px 0;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+	max-height: 600px;
+	overflow-y: auto;
+}
+.log-entry {
+	margin: 8px 0;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	font-size: 13px;
+	line-height: 1.6;
+}
+.timestamp {
+	color: #569cd6;
+	font-weight: 600;
+}
+</style></head><body>
+<div class="breadcrumb">🏠 <a href="/">Home</a> / 📊 <a href="/reports">Reports</a> / 📋 Current State</div>
+<div class="container">
+<h1>📋 Current State</h1>
+<div class="status">
+<h2>Current Status</h2>
+<p><strong>Targets Down:</strong> <span class="{{.DownClass}}">{{.DownCount}}</span></p>
+<p><strong>Targets with High Latency:</strong> <span class="{{.SlowClass}}">{{.SlowCount}}</span></p>
+<p><strong>Targets with Packet Loss:</strong> <span class="{{.PacketLossClass}}">{{.PacketLossCount}}</span></p>
+<p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
+<p><strong>Report Generated:</strong> {{.Timestamp}}</p>
+</div>
+<h2>Recent Logs (Last {{.LogCount}} entries)</h2>
+<div class="logs">
+{{if .Logs}}{{range .Logs}}<div class="log-entry"><span class="timestamp">{{.Timestamp}}</span> {{.Message}}</div>
+{{end}}{{else}}<p>No logs available yet.</p>{{end}}
+</div>
+</div>
+</body></html>
+

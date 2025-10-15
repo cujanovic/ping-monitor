@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Ping Monitor Service</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		body {
+			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+			margin: 0;
+			padding: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.container {
+			background: #2d2d2d;
+			border-radius: 20px;
+			box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+			padding: 60px 40px;
+			text-align: center;
+			max-width: 600px;
+			margin: 20px;
+		}
+		h1 {
+			color: #e0e0e0;
+			font-size: 42px;
+			margin: 0 0 10px 0;
+			font-weight: 700;
+		}
+		.emoji {
+			font-size: 64px;
+			margin-bottom: 20px;
+		}
+		.subtitle {
+			color: #b0b0b0;
+			font-size: 18px;
+			margin-bottom: 40px;
+		}
+		.stats {
+			background: #1e1e1e;
+			border-radius: 10px;
+			padding: 20px;
+			margin: 30px 0;
+		}
+		.stat-row {
+			display: flex;
+			justify-content: space-between;
+			padding: 10px 0;
+			border-bottom: 1px solid #404040;
+		}
+		.stat-row:last-child {
+			border-bottom: none;
+		}
+		.stat-label {
+			color: #b0b0b0;
+			font-weight: 500;
+		}
+		.stat-value {
+			color: #e0e0e0;
+			font-weight: 600;
+		}
+		.status-badge {
+			display: inline-block;
+			padding: 8px 16px;
+			border-radius: 20px;
+			font-weight: 600;
+			font-size: 14px;
+			margin: 20px 0;
+		}
+		.status-online {
+			background: #1e4620;
+			color: #4CAF50;
+		}
+		.btn {
+			display: inline-block;
+			padding: 15px 30px;
+			margin: 10px;
+			border-radius: 10px;
+			text-decoration: none;
+			font-weight: 600;
+			transition: transform 0.2s, box-shadow 0.2s;
+		}
+		.btn:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+		}
+		.btn-primary {
+			background: #667eea;
+			color: white;
+		}
+		.btn-secondary {
+			background: #48bb78;
+			color: white;
+		}
+		.version {
+			color: #999;
+			font-size: 12px;
+			margin-top: 30px;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="emoji">📡</div>
+		<h1>Ping Monitor Service</h1>
+		<p class="subtitle">Network Monitoring & Alerting System</p>
+		
+		<div class="status-badge status-online">● Service Online</div>
+		
+		<div class="stats">
+			<div class="stat-row">
+				<span class="stat-label">Targets Monitored</span>
+				<span class="stat-value">{{.TargetCount}}</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Service Uptime</span>
+				<span class="stat-value">{{.Uptime}}</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Check Interval</span>
+				<span class="stat-value">{{.Interval}} seconds</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Report Schedule</span>
+				<span class="stat-value">{{.Schedule}}</span>
+			</div>
+		</div>
+		
+		<div style="margin-top: 30px;">
+			<a href="/reports" class="btn btn-primary">📊 View Reports</a>
+			<a href="/status" class="btn btn-secondary">🟢 Status Check</a>
+		</div>
+		
+		<p class="version">Ping Monitor v1.0 • {{.Timestamp}}</p>
+	</div>
+</body>
+</html>
+

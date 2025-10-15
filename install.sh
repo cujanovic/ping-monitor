@@ -84,10 +84,15 @@ chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 # Copy files to installation directory
 echo -e "${GREEN}📋 Copying service files...${NC}"
-cp main.go "$INSTALL_DIR/"
+cp *.go "$INSTALL_DIR/"
 cp go.mod "$INSTALL_DIR/"
 cp go.sum "$INSTALL_DIR/" 2>/dev/null || true
 cp config.json "$INSTALL_DIR/"
+
+# Copy templates directory (required for HTTP interface)
+echo -e "${GREEN}📁 Copying HTML templates...${NC}"
+mkdir -p "$INSTALL_DIR/templates"
+cp templates/*.html "$INSTALL_DIR/templates/" 2>/dev/null || true
 
 # Restore existing config if this was an update
 if [ "$UPDATE_MODE" = true ] && [ -n "$TEMP_CONFIG" ] && [ -f "$TEMP_CONFIG" ]; then
@@ -102,7 +107,7 @@ if [ "$UPDATE_MODE" = false ] && [ ! -f "$INSTALL_DIR/config.json.original" ]; t
     echo -e "${GREEN}✅ Original configuration backed up to config.json.original${NC}"
 fi
 
-# Set proper ownership
+# Set proper ownership (includes all subdirectories like templates/)
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 # Build the service binary
@@ -115,7 +120,7 @@ su -s /bin/bash -c "cd $INSTALL_DIR && go mod tidy" "$SERVICE_USER"
 
 # Build the binary
 echo "Building ping-monitor binary..."
-su -s /bin/bash -c "cd $INSTALL_DIR && go build -o ping-monitor main.go" "$SERVICE_USER"
+su -s /bin/bash -c "cd $INSTALL_DIR && go build -o ping-monitor" "$SERVICE_USER"
 
 # Make binary executable
 chmod +x ping-monitor

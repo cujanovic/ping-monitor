@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html><head><title>Full Report - Ping Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body {
+	font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+	background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+	margin: 0;
+	padding: 20px;
+	min-height: 100vh;
+	color: #e0e0e0;
+}
+.breadcrumb {
+	max-width: 800px;
+	margin: 0 auto 20px;
+	font-size: 14px;
+	color: #b0b0b0;
+}
+.breadcrumb a {
+	color: #4CAF50;
+	text-decoration: none;
+}
+.breadcrumb a:hover {
+	text-decoration: underline;
+}
+.container {
+	max-width: 800px;
+	margin: 0 auto;
+	background: #2d2d2d;
+	border-radius: 20px;
+	box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+	padding: 40px;
+}
+h1 {
+	color: #e0e0e0;
+	font-size: 32px;
+	margin: 0 0 30px 0;
+	text-align: center;
+}
+h2 {
+	color: #e0e0e0;
+	font-size: 20px;
+	margin: 30px 0 15px 0;
+	border-bottom: 2px solid #404040;
+	padding-bottom: 10px;
+}
+.status {
+	background: #1e1e1e;
+	padding: 25px;
+	border-radius: 15px;
+	margin: 20px 0;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+.status p {
+	margin: 12px 0;
+	font-size: 14px;
+}
+.status-good { color: #4CAF50; font-weight: 600; }
+.status-warning { color: #FF9800; font-weight: 600; }
+.status-error { color: #f44336; font-weight: 600; }
+.logs, .email-report {
+	background: #1e1e1e;
+	color: #d4d4d4;
+	padding: 25px;
+	border-radius: 15px;
+	overflow-x: auto;
+	margin: 20px 0;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+	max-height: 400px;
+	overflow-y: auto;
+}
+.log-entry {
+	margin: 8px 0;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	font-size: 13px;
+	line-height: 1.6;
+}
+.timestamp {
+	color: #569cd6;
+	font-weight: 600;
+}
+pre {
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	margin: 0;
+	font-size: 13px;
+	line-height: 1.6;
+}
+.report-item {
+	margin: 20px 0;
+}
+.report-header { 
+	background: #1e1e1e;
+	padding: 20px 25px;
+	border-radius: 15px;
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	user-select: none;
+	transition: all 0.3s ease;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+.report-header:hover {
+	background: #252525;
+	transform: translateY(-2px);
+	box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+}
+.report-header h3 {
+	color: #4CAF50;
+	margin: 0;
+	font-size: 16px;
+}
+.report-content { 
+	background: #1a1a1a;
+	color: #d4d4d4;
+	padding: 25px;
+	border-radius: 0 0 15px 15px;
+	overflow-x: auto;
+	display: none;
+	margin-top: -10px;
+	box-shadow: inset 0 4px 6px rgba(0,0,0,0.3);
+	max-height: 500px;
+	overflow-y: auto;
+}
+.report-content.active {
+	display: block;
+	animation: slideDown 0.3s ease;
+}
+@keyframes slideDown {
+	from {
+		opacity: 0;
+		max-height: 0;
+	}
+	to {
+		opacity: 1;
+		max-height: 500px;
+	}
+}
+.toggle-icon { 
+	color: #4CAF50;
+	font-size: 24px;
+	transition: transform 0.3s ease;
+	font-weight: bold;
+}
+.toggle-icon.rotated {
+	transform: rotate(180deg);
+}
+.reports-list {
+	background: #1e1e1e;
+	padding: 25px;
+	border-radius: 15px;
+	margin: 20px 0;
+	box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+	text-align: center;
+	color: #b0b0b0;
+}
+</style></head><body>
+<div class="breadcrumb">🏠 <a href="/">Home</a> / 📊 <a href="/reports">Reports</a> / 📊 Full Report</div>
+<div class="container">
+<h1>📊 Full Report</h1>
+<div class="status">
+<h2>Current Status</h2>
+<p><strong>Targets Down:</strong> <span class="{{.DownClass}}">{{.DownCount}}</span></p>
+<p><strong>Targets with High Latency:</strong> <span class="{{.SlowClass}}">{{.SlowCount}}</span></p>
+<p><strong>Targets with Packet Loss:</strong> <span class="{{.PacketLossClass}}">{{.PacketLossCount}}</span></p>
+<p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
+<p><strong>Report Generated:</strong> {{.Timestamp}}</p>
+</div>
+<h2>Recent Logs (Last {{.LogCount}} entries)</h2>
+<div class="logs">
+{{if .Logs}}{{range .Logs}}<div class="log-entry"><span class="timestamp">{{.Timestamp}}</span> {{.Message}}</div>
+{{end}}{{else}}<p>No logs available yet.</p>{{end}}
+</div>
+<h2>Last Email Summary Report</h2>
+<div class="email-report">
+{{if .EmailReport}}<pre>{{.EmailReport}}</pre>{{else}}<p>No email report generated yet. Reports are generated based on your schedule ({{.Schedule}}).</p>{{end}}
+</div>
+<h2>All Available Reports ({{len .AllReports}} total)</h2>
+{{if .AllReports}}{{range $index, $report := .AllReports}}<div class="report-item">
+<div class="report-header" onclick="toggleReport({{$index}})">
+<h3>📄 {{$report.Filename}}</h3>
+<span class="toggle-icon" id="icon-{{$index}}">▼</span>
+</div>
+<div class="report-content{{if eq $index 0}} active{{end}}" id="report-{{$index}}">
+<pre>{{$report.Content}}</pre>
+</div>
+</div>
+{{end}}{{else}}<div class="reports-list"><p>No saved reports available. Reports directory: {{.ReportsDir}}</p></div>{{end}}
+</div>
+<script>
+function toggleReport(index) {
+	const content = document.getElementById('report-' + index);
+	const icon = document.getElementById('icon-' + index);
+	
+	if (content.classList.contains('active')) {
+		content.classList.remove('active');
+		icon.textContent = '▼';
+		icon.classList.remove('rotated');
+	} else {
+		content.classList.add('active');
+		icon.textContent = '▲';
+		icon.classList.add('rotated');
+	}
+}
+
+// Initialize first report as expanded
+window.addEventListener('DOMContentLoaded', function() {
+	const firstIcon = document.getElementById('icon-0');
+	if (firstIcon) {
+		firstIcon.textContent = '▲';
+		firstIcon.classList.add('rotated');
+	}
+});
+</script>
+</body></html>
+
