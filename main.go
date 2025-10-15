@@ -414,11 +414,15 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
 	
 	if success {
-		log.Printf("✓ %s - %d/%d packets received (%.0f%% loss), avg %.2fms", 
+		logMsg := fmt.Sprintf("✓ %s - %d/%d packets received (%.0f%% loss), avg %.2fms", 
 			formatTargetInfo(target), packetsRecv, packetsSent, float64(packetLossPercent), avgRttMs)
+		log.Println(logMsg)
+		pm.addLog(logMsg)
 	} else {
-		log.Printf("✗ %s - 0/%d packets received (100%% loss)", 
+		logMsg := fmt.Sprintf("✗ %s - 0/%d packets received (100%% loss)", 
 			formatTargetInfo(target), packetsSent)
+		log.Println(logMsg)
+		pm.addLog(logMsg)
 	}
 
 	return success, packetLossPercent, avgRttMs
@@ -2234,9 +2238,9 @@ h1 { color: #333; }
 </style></head><body>
 <h1>📊 Ping Monitor Reports</h1>
 <ul class="links">
-<li><a href="/status">🟢 Status</a> - Service health check</li>
 <li><a href="/report_now">📋 Current State</a> - Recent logs and current status</li>
 <li><a href="/report_all">📊 Full Report</a> - Current state + last email report</li>
+<li><a href="/status">🟢 Status</a> - Service health check</li>
 </ul>
 <p style="color: #666; font-size: 14px; margin-top: 40px;">Generated: {{.Timestamp}}</p>
 </body></html>`
