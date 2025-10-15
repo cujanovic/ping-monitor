@@ -99,6 +99,62 @@
 		font-size: 12px;
 		margin-top: 30px;
 	}
+	.targets {
+		margin: 30px 0;
+	}
+	.targets-list {
+		background: #1e1e1e;
+		border-radius: 10px;
+		padding: 15px;
+		max-height: 400px;
+		overflow-y: auto;
+	}
+	.target-item-home {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 10px;
+		border-bottom: 1px solid #404040;
+	}
+	.target-item-home:last-child {
+		border-bottom: none;
+	}
+	.target-info {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-align: left;
+	}
+	.target-status {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
+		flex-shrink: 0;
+		margin-left: 10px;
+	}
+	.badge {
+		padding: 4px 10px;
+		border-radius: 12px;
+		font-size: 10px;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.badge-ok {
+		background: #1f5d2f;
+		color: #4CAF50;
+	}
+	.badge-down {
+		background: #5d1f1f;
+		color: #f44336;
+	}
+	.badge-slow {
+		background: #5d4a1f;
+		color: #FF9800;
+	}
+	.badge-loss {
+		background: #5d3a1f;
+		color: #ff9800;
+	}
 
 	/* Mobile Optimizations */
 	@media (max-width: 768px) {
@@ -157,6 +213,33 @@
 		font-size: 11px;
 		margin-top: 25px;
 	}
+	.targets-list {
+		padding: 10px;
+		max-height: 300px;
+	}
+	.target-item-home {
+		flex-direction: column;
+		align-items: flex-start;
+		padding: 8px;
+	}
+	.target-info strong {
+		font-size: 14px;
+	}
+	.target-info span {
+		font-size: 11px;
+	}
+	.target-status {
+		margin-left: 0;
+		margin-top: 8px;
+		gap: 4px;
+	}
+	.badge {
+		font-size: 9px;
+		padding: 3px 8px;
+	}
+	h2 {
+		font-size: 16px !important;
+	}
 	}
 </style>
 </head>
@@ -187,9 +270,28 @@
 			</div>
 		</div>
 		
+		<div class="targets">
+			<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Monitored Targets</h2>
+			<div class="targets-list">
+				{{range .Targets}}
+				<div class="target-item-home">
+					<div class="target-info">
+						<strong style="display: block; color: #e0e0e0; margin-bottom: 4px;">{{.Name}}</strong>
+						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
+					</div>
+					<div class="target-status">
+						{{if .IsDown}}<span class="badge badge-down">DOWN</span>{{end}}
+						{{if .IsSlow}}<span class="badge badge-slow">HIGH LATENCY</span>{{end}}
+						{{if .HasPacketLoss}}<span class="badge badge-loss">PACKET LOSS</span>{{end}}
+						{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span class="badge badge-ok">OK</span>{{end}}
+					</div>
+				</div>
+				{{end}}
+			</div>
+		</div>
+		
 	<div class="btn-container" style="margin-top: 30px;">
 		<a href="/reports" class="btn btn-primary">📊 View Reports</a>
-		<a href="/status" class="btn btn-secondary">🟢 Status Check</a>
 	</div>
 		
 		<p class="version">Ping Monitor v1.0 • Server time:{{.Timestamp}}</p>

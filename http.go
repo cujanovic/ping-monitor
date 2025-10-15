@@ -119,18 +119,44 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(pm.statsStartTime)
 	schedule := fmt.Sprintf("%s at %s", strings.Title(pm.config.SummaryReportSchedule), pm.config.SummaryReportTime)
 	
+	// Build targets list with status
+	type TargetInfo struct {
+		Name          string
+		Address       string
+		Label         string
+		IsDown        bool
+		IsSlow        bool
+		HasPacketLoss bool
+	}
+	
+	pm.mu.RLock()
+	targets := make([]TargetInfo, len(pm.config.Targets))
+	for i, target := range pm.config.Targets {
+		targets[i] = TargetInfo{
+			Name:          target.Name,
+			Address:       target.TargetAddr,
+			Label:         getTargetLabel(target.TargetAddr),
+			IsDown:        pm.downTargets[target.TargetAddr],
+			IsSlow:        pm.slowTargets[target.TargetAddr],
+			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+		}
+	}
+	pm.mu.RUnlock()
+	
 	data := struct {
 		TargetCount int
 		Uptime      string
 		Interval    int
 		Schedule    string
 		Timestamp   string
+		Targets     []TargetInfo
 	}{
 		TargetCount: len(pm.config.Targets),
 		Uptime:      formatDuration(uptime),
 		Interval:    pm.config.PingIntervalSeconds,
 		Schedule:    schedule,
 		Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
+		Targets:     targets,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
