@@ -18,6 +18,8 @@ A Go-based service that monitors IP addresses and sends email notifications when
 - **Flexible Configuration**: Per-target or global thresholds for latency and packet loss
 - **Graceful Shutdown**: Handles SIGTERM and SIGINT signals properly
 - **Comprehensive Logging**: Detailed logging with statistics and error recovery
+- **HTTP Dashboard**: Web interface for viewing reports and current status
+- **Authentication System**: Secure Argon2id password authentication with session management (optional)
 
 ## Email Service: Brevo (Recommended)
 
@@ -177,6 +179,81 @@ sudo systemctl enable ping-monitor
 sudo systemctl start ping-monitor
 ```
 
+## Authentication & Security
+
+The service includes an optional authentication system to protect your monitoring dashboard. When enabled, all HTTP endpoints (except `/status` for monitoring tools) require login.
+
+### Quick Setup
+
+**1. Generate Password Hash:**
+```bash
+./ping-monitor --set-password
+```
+
+You'll be prompted to enter and confirm your password. The tool will generate an Argon2id hash.
+
+**2. Update config.json:**
+```json
+{
+  "auth_enabled": true,
+  "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$YOUR_GENERATED_HASH",
+  "argon2_memory": 65536,
+  "argon2_time": 3,
+  "argon2_threads": 4,
+  "session_timeout_minutes": 60,
+  "max_login_attempts": 5,
+  "lockout_duration_minutes": 15,
+  ...
+}
+```
+
+**3. Restart Service:**
+```bash
+sudo systemctl restart ping-monitor
+```
+
+### Security Features
+
+- ✅ **Argon2id Hashing** - Winner of Password Hashing Competition (2015), memory-hard, GPU-resistant
+- ✅ **Session Management** - HTTP-only, SameSite cookies with 32-byte random tokens
+- ✅ **Rate Limiting** - 5 failed attempts → 15-minute IP lockout
+- ✅ **No Bypass Vulnerabilities** - Secure against common authentication bypasses
+- ✅ **Configurable** - Adjust memory, time, threads, session timeout, lockout settings
+
+### Protected vs Public Endpoints
+
+**Protected** (require authentication when enabled):
+- `/` - Homepage with target list and stats
+- `/reports` - Reports index page
+- `/report_now` - Current state and recent logs
+- `/report_all` - Full report with email summaries
+
+**Public** (always accessible):
+- `/status` - Health check for monitoring tools
+- `/login` - Login page
+- `/logout` - Logout
+
+### Disable Authentication
+
+To disable authentication (default):
+```json
+{
+  "auth_enabled": false,
+  ...
+}
+```
+
+### Full Documentation
+
+For complete details including:
+- Configuration parameters
+- Security best practices
+- Password management
+- Troubleshooting
+- Performance tuning
+
+See **[AUTHENTICATION.md](AUTHENTICATION.md)**
+
 ## Configuration Options
 
 ### config.json Structure
@@ -193,6 +270,23 @@ sudo systemctl start ping-monitor
 - **summary_report_enabled**: Enable daily/weekly summary reports (default: false)
 - **summary_report_schedule**: Report frequency - "daily" or "weekly" (default: "daily")
 - **summary_report_time**: Time to send reports in HH:MM format (default: "09:00")
+- **http_enabled**: Enable HTTP dashboard (default: true)
+- **http_listen**: HTTP server address and port (default: "127.0.0.1:8080")
+- **http_log_lines**: Number of log lines to show in dashboard (default: 20)
+- **http_rate_limit_per_minute**: Rate limit for HTTP requests per IP (default: 60)
+- **reports_directory**: Directory to store email report files (default: "./reports")
+- **reports_keep_count**: Number of historical reports to keep (default: 10)
+- **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
+
+#### Authentication Configuration (Optional)
+- **auth_enabled**: Enable password authentication for HTTP dashboard (default: false)
+- **password_hash**: Argon2id password hash (generate with `--set-password`)
+- **argon2_memory**: Memory cost in KB for Argon2id (default: 65536 = 64MB)
+- **argon2_time**: Time iterations for Argon2id (default: 3)
+- **argon2_threads**: Parallel threads for Argon2id (default: 4)
+- **session_timeout_minutes**: Session expiration time (default: 60)
+- **max_login_attempts**: Failed attempts before lockout (default: 5)
+- **lockout_duration_minutes**: Lockout duration after max attempts (default: 15)
 
 #### Email Configuration
 - **email**: Brevo email configuration
@@ -458,6 +552,13 @@ Uses a worker pool pattern to efficiently handle large numbers of targets. The `
    - Ensure `summary_report_schedule` is "daily" or "weekly"
    - Reports send at the configured time
 
+9. **Authentication issues**:
+   - **Can't login**: Verify password hash was generated correctly with `--set-password`
+   - **"Too many failed attempts"**: Wait 15 minutes or restart service to clear lockout
+   - **Session expires quickly**: Increase `session_timeout_minutes` in config.json
+   - **Forgot password**: Generate new hash and update config.json
+   - **Can't generate hash**: Ensure binary is compiled: `go build`
+
 ### Testing
 
 Test individual targets:
@@ -482,14 +583,35 @@ curl -X POST "https://api.brevo.com/v3/smtp/email" \
 
 ## Security Considerations
 
+### API Keys & Credentials
 - Store Brevo API key securely (use environment variables in production)
 - Use a dedicated monitoring email account
-- Implement proper firewall rules for the monitoring server
+- Never commit API keys or password hashes to version control
 - Consider using environment variables for sensitive configuration:
   ```bash
   export BREVO_API_KEY="your-api-key"
   # Then update config.json to use: "api_key": "$BREVO_API_KEY"
   ```
+
+### Authentication Security
+- **Enable authentication** if exposing HTTP dashboard to network
+- Use **strong passwords** (minimum 12 characters recommended)
+- **Change default port** (`http_listen`) from 127.0.0.1 to bind to specific interface
+- Authentication uses **Argon2id** (memory-hard, GPU-resistant)
+- Rate limiting protects against brute force (5 attempts → 15 min lockout)
+- Session cookies are **HTTP-only** and **SameSite=Strict**
+
+### Network Security
+- Implement proper firewall rules for the monitoring server
+- For local/VPN deployments: HTTP with authentication is secure
+- For internet-facing deployments: Consider adding HTTPS reverse proxy (nginx, Caddy)
+- `/status` endpoint is always public for monitoring tools
+
+### Best Practices
+- Run service as dedicated user (`pingmon`) with minimal privileges
+- Keep system and Go dependencies updated
+- Monitor authentication logs for suspicious activity
+- Use authentication for any non-local deployments
 
 ## Installation Scripts
 
