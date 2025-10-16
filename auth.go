@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -234,6 +235,13 @@ func (pm *PingMonitor) validateReturnURL(returnURL string) string {
 		return "/"
 	}
 	
+	// Prevent backslash redirects (\evil.com, /\evil.com, \/\evil.com)
+	// Browsers can interpret backslashes as forward slashes in URLs
+	if strings.Contains(returnURL, "\\") {
+		log.Printf("⚠️  Invalid return URL (contains backslash): %s", returnURL)
+		return "/"
+	}
+	
 	// Prevent URLs with schemes (http://, https://, javascript:, etc.)
 	if strings.Contains(returnURL, ":") {
 		log.Printf("⚠️  Invalid return URL (contains scheme): %s", returnURL)
@@ -290,7 +298,16 @@ func (pm *PingMonitor) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 			// Validate the return URL before using it
 			safeReturnURL := pm.validateReturnURL(returnURL)
-			http.Redirect(w, r, "/login?return="+safeReturnURL, http.StatusSeeOther)
+			
+			// Construct login redirect URL with validated return parameter
+			// Using url.Values to properly encode the parameter
+			loginURL := "/login"
+			if safeReturnURL != "/" {
+				values := url.Values{}
+				values.Set("return", safeReturnURL)
+				loginURL = "/login?" + values.Encode()
+			}
+			http.Redirect(w, r, loginURL, http.StatusSeeOther)
 			return
 		}
 		
@@ -388,7 +405,22 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		// Redirect to return URL (validated to prevent open redirect)
 		returnURL := r.FormValue("return")
 		safeReturnURL := pm.validateReturnURL(returnURL)
-		http.Redirect(w, r, safeReturnURL, http.StatusSeeOther)
+		
+		// Explicit whitelist check to satisfy static analysis tools
+		// Extract base path (without query params) for validation
+		basePath := safeReturnURL
+		if idx := strings.Index(safeReturnURL, "?"); idx != -1 {
+			basePath = safeReturnURL[:idx]
+		}
+		
+		// Only redirect to known-safe paths
+		switch basePath {
+		case "/", "/reports", "/report_now", "/report_all":
+			http.Redirect(w, r, safeReturnURL, http.StatusSeeOther)
+		default:
+			// If validation somehow failed, redirect to root
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+		}
 		return
 	}
 	
