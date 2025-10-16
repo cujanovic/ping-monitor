@@ -92,6 +92,31 @@ func getClientIP(r *http.Request) string {
 	return ip
 }
 
+// securityHeadersMiddleware adds security headers to responses
+func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Content Security Policy - allow scripts, styles, and images from same origin
+		w.Header().Set("Content-Security-Policy", 
+			"default-src 'self'; "+
+			"script-src 'self'; "+
+			"style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data:; "+
+			"font-src 'self'; "+
+			"connect-src 'self'; "+
+			"frame-ancestors 'none'; "+
+			"base-uri 'self'; "+
+			"form-action 'self'")
+		
+		// Additional security headers
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		
+		next(w, r)
+	}
+}
+
 // rateLimitMiddleware wraps a handler with rate limiting
 func (pm *PingMonitor) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -430,17 +455,17 @@ func (pm *PingMonitor) startHTTPServer() {
 		return
 	}
 
-	// Public routes (no auth required)
-	http.HandleFunc("/status", pm.handleStatus)
-	http.HandleFunc("/login", pm.handleLogin)
-	http.HandleFunc("/logout", pm.handleLogout)
-	http.HandleFunc("/static/app.js", pm.handleStaticJS)
+	// Public routes (no auth required, with security headers)
+	http.HandleFunc("/status", securityHeadersMiddleware(pm.handleStatus))
+	http.HandleFunc("/login", securityHeadersMiddleware(pm.handleLogin))
+	http.HandleFunc("/logout", securityHeadersMiddleware(pm.handleLogout))
+	http.HandleFunc("/static/app.js", securityHeadersMiddleware(pm.handleStaticJS))
 	
-	// Protected routes (require auth if enabled)
-	http.HandleFunc("/", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot)))
-	http.HandleFunc("/reports", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReports)))
-	http.HandleFunc("/report_now", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportNow)))
-	http.HandleFunc("/report_all", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportAll)))
+	// Protected routes (require auth if enabled, with security headers)
+	http.HandleFunc("/", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot))))
+	http.HandleFunc("/reports", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReports))))
+	http.HandleFunc("/report_now", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportNow))))
+	http.HandleFunc("/report_all", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportAll))))
 	
 	if pm.httpRateLimiter != nil {
 		go func() {
