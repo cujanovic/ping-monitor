@@ -223,60 +223,33 @@ func (pm *PingMonitor) validateReturnURL(returnURL string) string {
 		return "/"
 	}
 	
-	// Must start with / (relative path)
-	if !strings.HasPrefix(returnURL, "/") {
-		log.Printf("⚠️  Invalid return URL (not relative): %s", returnURL)
+	// Comprehensive validation in a single check to satisfy static analysis
+	// Check: must start with /, but second char must not be / or \
+	// Also check for schemes (:), backslashes, and newlines
+	if len(returnURL) < 1 || 
+	   returnURL[0] != '/' ||                           // Must start with /
+	   (len(returnURL) >= 2 && (returnURL[1] == '/' || returnURL[1] == '\\')) || // Second char not / or \
+	   strings.Contains(returnURL, "\\") ||              // No backslashes anywhere
+	   strings.Contains(returnURL, ":") ||               // No schemes (http:, javascript:)
+	   strings.ContainsAny(returnURL, "\r\n") {          // No newlines
+		log.Printf("⚠️  Invalid return URL (failed security checks): %s", returnURL)
 		return "/"
 	}
 	
-	// Prevent protocol-relative URLs (//evil.com)
-	if strings.HasPrefix(returnURL, "//") {
-		log.Printf("⚠️  Invalid return URL (protocol-relative): %s", returnURL)
-		return "/"
-	}
-	
-	// Prevent backslash redirects (\evil.com, /\evil.com, \/\evil.com)
-	// Browsers can interpret backslashes as forward slashes in URLs
-	if strings.Contains(returnURL, "\\") {
-		log.Printf("⚠️  Invalid return URL (contains backslash): %s", returnURL)
-		return "/"
-	}
-	
-	// Prevent URLs with schemes (http://, https://, javascript:, etc.)
-	if strings.Contains(returnURL, ":") {
-		log.Printf("⚠️  Invalid return URL (contains scheme): %s", returnURL)
-		return "/"
-	}
-	
-	// Prevent newline injection
-	if strings.ContainsAny(returnURL, "\r\n") {
-		log.Printf("⚠️  Invalid return URL (contains newline): %s", returnURL)
-		return "/"
-	}
-	
-	// Additional check: must be a valid local path
-	// Allow only: /, /reports, /report_now, /report_all
-	// Or any path starting with these + query params
-	validPaths := []string{"/", "/reports", "/report_now", "/report_all"}
+	// Extract base path (without query params) for whitelist validation
 	pathWithoutQuery := returnURL
 	if idx := strings.Index(returnURL, "?"); idx != -1 {
 		pathWithoutQuery = returnURL[:idx]
 	}
 	
-	isValid := false
-	for _, validPath := range validPaths {
-		if pathWithoutQuery == validPath {
-			isValid = true
-			break
-		}
-	}
-	
-	if !isValid {
-		log.Printf("⚠️  Invalid return URL (not a valid path): %s", returnURL)
+	// Explicit whitelist: only allow known-safe paths
+	switch pathWithoutQuery {
+	case "/", "/reports", "/report_now", "/report_all":
+		return returnURL
+	default:
+		log.Printf("⚠️  Invalid return URL (not in whitelist): %s", returnURL)
 		return "/"
 	}
-	
-	return returnURL
 }
 
 // AuthMiddleware is middleware that requires authentication
@@ -406,21 +379,32 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		returnURL := r.FormValue("return")
 		safeReturnURL := pm.validateReturnURL(returnURL)
 		
-		// Explicit whitelist check to satisfy static analysis tools
-		// Extract base path (without query params) for validation
+		// Extract base path and query string
 		basePath := safeReturnURL
+		queryString := ""
 		if idx := strings.Index(safeReturnURL, "?"); idx != -1 {
 			basePath = safeReturnURL[:idx]
+			queryString = safeReturnURL[idx:] // includes the '?'
 		}
 		
-		// Only redirect to known-safe paths
+		// Reconstruct URL from validated constant path + query string
+		// This ensures CodeQL can verify the base path is a constant
+		var redirectURL string
 		switch basePath {
-		case "/", "/reports", "/report_now", "/report_all":
-			http.Redirect(w, r, safeReturnURL, http.StatusSeeOther)
+		case "/":
+			redirectURL = "/" + queryString
+		case "/reports":
+			redirectURL = "/reports" + queryString
+		case "/report_now":
+			redirectURL = "/report_now" + queryString
+		case "/report_all":
+			redirectURL = "/report_all" + queryString
 		default:
 			// If validation somehow failed, redirect to root
-			http.Redirect(w, r, "/", http.StatusSeeOther)
+			redirectURL = "/"
 		}
+		
+		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 		return
 	}
 	
