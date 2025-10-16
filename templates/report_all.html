@@ -299,7 +299,7 @@ pre {
 </div>
 <h2>All Available Reports ({{len .AllReports}} total)</h2>
 {{if .AllReports}}{{range $index, $report := .AllReports}}<div class="report-item">
-<div class="report-header" onclick="toggleReport({{$index}})">
+<div class="report-header" data-report-index="{{$index}}">
 <h3>📄 {{$report.Filename}}</h3>
 <span class="toggle-icon" id="icon-{{$index}}">▼</span>
 </div>
