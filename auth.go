@@ -379,32 +379,28 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		returnURL := r.FormValue("return")
 		safeReturnURL := pm.validateReturnURL(returnURL)
 		
-		// Extract base path and query string
+		// Extract base path (ignore query string for maximum security)
+		// Query parameters are not needed for login redirects
 		basePath := safeReturnURL
-		queryString := ""
 		if idx := strings.Index(safeReturnURL, "?"); idx != -1 {
 			basePath = safeReturnURL[:idx]
-			queryString = safeReturnURL[idx:] // includes the '?'
 		}
 		
-		// Reconstruct URL from validated constant path + query string
-		// This ensures CodeQL can verify the base path is a constant
-		var redirectURL string
+		// Only redirect to constant paths (no user input in final URL)
+		// This ensures CodeQL can verify no user data reaches the redirect
 		switch basePath {
 		case "/":
-			redirectURL = "/" + queryString
+			http.Redirect(w, r, "/", http.StatusSeeOther)
 		case "/reports":
-			redirectURL = "/reports" + queryString
+			http.Redirect(w, r, "/reports", http.StatusSeeOther)
 		case "/report_now":
-			redirectURL = "/report_now" + queryString
+			http.Redirect(w, r, "/report_now", http.StatusSeeOther)
 		case "/report_all":
-			redirectURL = "/report_all" + queryString
+			http.Redirect(w, r, "/report_all", http.StatusSeeOther)
 		default:
 			// If validation somehow failed, redirect to root
-			redirectURL = "/"
+			http.Redirect(w, r, "/", http.StatusSeeOther)
 		}
-		
-		http.Redirect(w, r, redirectURL, http.StatusSeeOther)
 		return
 	}
 	
