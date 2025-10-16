@@ -24,6 +24,7 @@ type PingMonitor struct {
 	emailsSentThisHour []time.Time
 	targetStats        map[string]*TargetStats
 	statsStartTime     time.Time
+	lastLatency        map[string]float64 // Latest ping latency in ms
 	logBuffer          []LogEntry
 	logPendingBuffer   []LogEntry
 	logMu              sync.Mutex
@@ -144,6 +145,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
 		statsStartTime:     time.Now(),
+		lastLatency:        make(map[string]float64),
 		logBuffer:          make([]LogEntry, 0, config.HTTPLogLines),
 		logPendingBuffer:   make([]LogEntry, 0),
 		httpRateLimiter:    rateLimiter,

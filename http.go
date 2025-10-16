@@ -127,6 +127,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		IsDown        bool
 		IsSlow        bool
 		HasPacketLoss bool
+		LatencyMs     float64 // Latest ping latency in ms
 	}
 	
 	pm.mu.RLock()
@@ -139,6 +140,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			IsDown:        pm.downTargets[target.TargetAddr],
 			IsSlow:        pm.slowTargets[target.TargetAddr],
 			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:     pm.lastLatency[target.TargetAddr],
 		}
 	}
 	pm.mu.RUnlock()
@@ -227,12 +229,13 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	
 	// Build targets list with status
 	type TargetInfo struct {
-		Name       string
-		Address    string
-		Label      string
-		IsDown     bool
-		IsSlow     bool
+		Name          string
+		Address       string
+		Label         string
+		IsDown        bool
+		IsSlow        bool
 		HasPacketLoss bool
+		LatencyMs     float64 // Latest ping latency in ms
 	}
 	
 	pm.mu.RLock()
@@ -245,6 +248,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			IsDown:        pm.downTargets[target.TargetAddr],
 			IsSlow:        pm.slowTargets[target.TargetAddr],
 			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:     pm.lastLatency[target.TargetAddr],
 		}
 	}
 	pm.mu.RUnlock()
@@ -340,12 +344,13 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	
 	// Build targets list with status
 	type TargetInfo struct {
-		Name       string
-		Address    string
-		Label      string
-		IsDown     bool
-		IsSlow     bool
+		Name          string
+		Address       string
+		Label         string
+		IsDown        bool
+		IsSlow        bool
 		HasPacketLoss bool
+		LatencyMs     float64 // Latest ping latency in ms
 	}
 	
 	pm.mu.RLock()
@@ -358,6 +363,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			IsDown:        pm.downTargets[target.TargetAddr],
 			IsSlow:        pm.slowTargets[target.TargetAddr],
 			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:     pm.lastLatency[target.TargetAddr],
 		}
 	}
 	pm.mu.RUnlock()

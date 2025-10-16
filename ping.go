@@ -40,6 +40,13 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	success := packetsRecv > 0
 	avgRttMs := float64(stats.AvgRtt) / float64(time.Millisecond)
 
+	// Store latest latency
+	pm.mu.Lock()
+	if success {
+		pm.lastLatency[target.TargetAddr] = avgRttMs
+	}
+	pm.mu.Unlock()
+
 	// Update statistics
 	pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
 
