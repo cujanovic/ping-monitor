@@ -155,7 +155,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		Uptime:      formatDuration(uptime),
 		Interval:    pm.config.PingIntervalSeconds,
 		Schedule:    schedule,
-		Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
+		Timestamp:   pm.getReportTime().Format("2006-01-02 15:04:05"),
 		Targets:     targets,
 	}
 	
@@ -178,7 +178,7 @@ func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Timestamp string
 	}{
-		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+		Timestamp: pm.getReportTime().Format("2006-01-02 15:04:05"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "reports.html", data); err != nil {

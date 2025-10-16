@@ -284,7 +284,7 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	pm.mu.RLock()
 	reportDuration := time.Since(pm.statsStartTime)
 	schedule := pm.config.SummaryReportSchedule
-	now := time.Now()
+	now := pm.getReportTime()  // Use getReportTime() to apply offset
 	reportStart := now.Add(-reportDuration)
 	
 	subject := fmt.Sprintf("📊 Ping Monitor %s Summary Report", strings.Title(schedule))
@@ -456,7 +456,9 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	}
 
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
-	body.WriteString(fmt.Sprintf("Next %s report: %s\n", schedule, pm.getNextReportTime().Format("Jan 2, 2006 15:04")))
+	// Apply offset to next report time for display
+	nextReportDisplay := pm.getNextReportTime().Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+	body.WriteString(fmt.Sprintf("Next %s report: %s\n", schedule, nextReportDisplay.Format("Jan 2, 2006 15:04")))
 }
 
 func (pm *PingMonitor) writeTargetSummary(body *strings.Builder, label string, targets []TargetReport, maxShow int, allowPerfect bool) {
@@ -548,15 +550,17 @@ func (pm *PingMonitor) writeTargetDetails(body *strings.Builder, title string, t
 		if len(report.Stats.RecentEvents) > 0 {
 			body.WriteString("  📋 Recent Events:\n")
 			for _, event := range report.Stats.RecentEvents {
+				// Apply time offset to event timestamps
+				eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
 				body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
-					event.Timestamp.Format("Jan 2 15:04:05"), formatEvent(event)))
+					eventTime.Format("Jan 2 15:04:05"), formatEvent(event)))
 			}
 		}
 		body.WriteString("\n")
 	}
 }
 
-// getNextReportTime calculates the next report time
+// getNextReportTime calculates the next report time (without offset, for scheduling)
 func (pm *PingMonitor) getNextReportTime() time.Time {
 	now := time.Now()
 	
@@ -600,8 +604,10 @@ func (pm *PingMonitor) startSummaryReportScheduler() {
 			nextReport := pm.getNextReportTime()
 			duration := time.Until(nextReport)
 			
+			// Display with offset for user convenience
+			nextReportDisplay := nextReport.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
 			msg := fmt.Sprintf("📅 Next summary report scheduled for: %s (in %s)", 
-				nextReport.Format("2006-01-02 15:04:05"), formatDuration(duration))
+				nextReportDisplay.Format("2006-01-02 15:04:05"), formatDuration(duration))
 			log.Printf(msg)
 			pm.addLog(msg)
 			
