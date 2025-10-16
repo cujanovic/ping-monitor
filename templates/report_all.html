@@ -309,30 +309,6 @@ pre {
 </div>
 {{end}}{{else}}<div class="reports-list"><p>No saved reports available. Reports directory: {{.ReportsDir}}</p></div>{{end}}
 </div>
-<script>
-function toggleReport(index) {
-	const content = document.getElementById('report-' + index);
-	const icon = document.getElementById('icon-' + index);
-	
-	if (content.classList.contains('active')) {
-		content.classList.remove('active');
-		icon.textContent = '▼';
-		icon.classList.remove('rotated');
-	} else {
-		content.classList.add('active');
-		icon.textContent = '▲';
-		icon.classList.add('rotated');
-	}
-}
-
-// Initialize first report as expanded
-window.addEventListener('DOMContentLoaded', function() {
-	const firstIcon = document.getElementById('icon-0');
-	if (firstIcon) {
-		firstIcon.textContent = '▲';
-		firstIcon.classList.add('rotated');
-	}
-});
-</script>
+<script src="/static/app.js"></script>
 </body></html>
 

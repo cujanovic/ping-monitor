@@ -173,6 +173,22 @@ func (pm *PingMonitor) handleStatus(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "OK\n")
 }
 
+// handleStaticJS serves the JavaScript file
+func (pm *PingMonitor) handleStaticJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	
+	// Read the JavaScript file from templates directory
+	jsContent, err := os.ReadFile("templates/app.js")
+	if err != nil {
+		http.Error(w, "JavaScript file not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read app.js: %v", err)
+		return
+	}
+	
+	w.Write(jsContent)
+}
+
 // handleReports handles the reports page
 func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -418,6 +434,7 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/status", pm.handleStatus)
 	http.HandleFunc("/login", pm.handleLogin)
 	http.HandleFunc("/logout", pm.handleLogout)
+	http.HandleFunc("/static/app.js", pm.handleStaticJS)
 	
 	// Protected routes (require auth if enabled)
 	http.HandleFunc("/", pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot)))

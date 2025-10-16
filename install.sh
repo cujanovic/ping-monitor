@@ -90,9 +90,10 @@ cp go.sum "$INSTALL_DIR/" 2>/dev/null || true
 cp config.json "$INSTALL_DIR/"
 
 # Copy templates directory (required for HTTP interface)
-echo -e "${GREEN}📁 Copying HTML templates...${NC}"
+echo -e "${GREEN}📁 Copying HTML templates and static files...${NC}"
 mkdir -p "$INSTALL_DIR/templates"
 cp templates/*.html "$INSTALL_DIR/templates/" 2>/dev/null || true
+cp templates/*.js "$INSTALL_DIR/templates/" 2>/dev/null || true
 
 # Restore existing config if this was an update
 if [ "$UPDATE_MODE" = true ] && [ -n "$TEMP_CONFIG" ] && [ -f "$TEMP_CONFIG" ]; then
