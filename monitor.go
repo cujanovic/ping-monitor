@@ -90,6 +90,11 @@ func NewPingMonitor(config Config) *PingMonitor {
 		config.LogBufferFlushSeconds = 5
 	}
 
+	// Set default recent incidents hours
+	if config.RecentIncidentsHours == 0 {
+		config.RecentIncidentsHours = 24
+	}
+
 	// Create reports directory if specified
 	if config.ReportsDirectory != "" {
 		if err := os.MkdirAll(config.ReportsDirectory, 0755); err != nil {

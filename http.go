@@ -171,20 +171,33 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	pm.mu.RUnlock()
 	
+	// Get recent incidents
+	incidents := pm.getRecentIncidents()
+	
 	data := struct {
-		TargetCount int
-		Uptime      string
-		Interval    int
-		Schedule    string
-		Timestamp   string
-		Targets     []TargetInfo
+		TargetCount     int
+		Uptime          string
+		Interval        int
+		Schedule        string
+		Timestamp       string
+		Targets         []TargetInfo
+		RecentIncidents []struct {
+			TargetName    string
+			TargetAddress string
+			Timestamp     string
+			EventType     string
+			Description   string
+		}
+		IncidentsHours int
 	}{
-		TargetCount: len(pm.config.Targets),
-		Uptime:      formatDuration(uptime),
-		Interval:    pm.config.PingIntervalSeconds,
-		Schedule:    schedule,
-		Timestamp:   pm.getReportTime().Format("2006-01-02 15:04:05"),
-		Targets:     targets,
+		TargetCount:     len(pm.config.Targets),
+		Uptime:          formatDuration(uptime),
+		Interval:        pm.config.PingIntervalSeconds,
+		Schedule:        schedule,
+		Timestamp:       pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Targets:         targets,
+		RecentIncidents: incidents,
+		IncidentsHours:  pm.config.RecentIncidentsHours,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
@@ -295,6 +308,9 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	}
 	pm.mu.RUnlock()
 	
+	// Get recent incidents
+	incidents := pm.getRecentIncidents()
+	
 	data := struct {
 		DownCount        int
 		SlowCount        int
@@ -307,6 +323,14 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		SlowClass        string
 		PacketLossClass  string
 		Targets          []TargetInfo
+		RecentIncidents  []struct {
+			TargetName    string
+			TargetAddress string
+			Timestamp     string
+			EventType     string
+			Description   string
+		}
+		IncidentsHours int
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -319,6 +343,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		SlowClass:        getWarningClass(slowCount),
 		PacketLossClass:  getWarningClass(packetLossCount),
 		Targets:          targets,
+		RecentIncidents:  incidents,
+		IncidentsHours:   pm.config.RecentIncidentsHours,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -410,6 +436,9 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	}
 	pm.mu.RUnlock()
 	
+	// Get recent incidents
+	incidents := pm.getRecentIncidents()
+	
 	data := struct {
 		DownCount        int
 		SlowCount        int
@@ -426,6 +455,14 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		AllReports       []ReportWithContent
 		ReportsDir       string
 		Targets          []TargetInfo
+		RecentIncidents  []struct {
+			TargetName    string
+			TargetAddress string
+			Timestamp     string
+			EventType     string
+			Description   string
+		}
+		IncidentsHours int
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -442,6 +479,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		AllReports:       allReportsContent,
 		ReportsDir:       pm.config.ReportsDirectory,
 		Targets:          targets,
+		RecentIncidents:  incidents,
+		IncidentsHours:   pm.config.RecentIncidentsHours,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {

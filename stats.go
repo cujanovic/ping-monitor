@@ -620,3 +620,96 @@ func (pm *PingMonitor) startSummaryReportScheduler() {
 		}
 	}()
 }
+
+// getRecentIncidents returns incidents from the last X hours for all targets
+func (pm *PingMonitor) getRecentIncidents() []struct {
+	TargetName    string
+	TargetAddress string
+	Timestamp     string
+	EventType     string
+	Description   string
+} {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	type Incident struct {
+		TargetName    string
+		TargetAddress string
+		Timestamp     string
+		EventType     string
+		Description   string
+		Time          time.Time // For sorting
+	}
+
+	incidents := make([]Incident, 0)
+	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
+
+	// Collect incidents from all targets
+	for _, target := range pm.config.Targets {
+		stats, exists := pm.targetStats[target.TargetAddr]
+		if !exists {
+			continue
+		}
+
+		// Go through recent events
+		for _, event := range stats.RecentEvents {
+			// Only include events after cutoff time
+			if event.Timestamp.Before(cutoffTime) {
+				continue
+			}
+
+			// Only include problem events (not recovery/normal events)
+			if event.EventType == "up" || event.EventType == "latency_normal" || event.EventType == "packet_loss_normal" {
+				continue
+			}
+
+			// Create incident description
+			var description string
+			eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+			
+			switch event.EventType {
+			case "down":
+				description = fmt.Sprintf("Target went DOWN")
+			case "high_latency":
+				description = fmt.Sprintf("High latency: %.2fms (threshold: %.0fms)", event.Value, event.Threshold)
+			case "packet_loss":
+				description = fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
+			default:
+				description = fmt.Sprintf("Event: %s", event.EventType)
+			}
+
+			incidents = append(incidents, Incident{
+				TargetName:    target.Name,
+				TargetAddress: target.TargetAddr,
+				Timestamp:     eventTime.Format("2006-01-02 15:04:05"),
+				EventType:     event.EventType,
+				Description:   description,
+				Time:          event.Timestamp,
+			})
+		}
+	}
+
+	// Sort by time (most recent first)
+	sort.Slice(incidents, func(i, j int) bool {
+		return incidents[i].Time.After(incidents[j].Time)
+	})
+
+	// Convert to return type (without Time field)
+	result := make([]struct {
+		TargetName    string
+		TargetAddress string
+		Timestamp     string
+		EventType     string
+		Description   string
+	}, len(incidents))
+
+	for i, inc := range incidents {
+		result[i].TargetName = inc.TargetName
+		result[i].TargetAddress = inc.TargetAddress
+		result[i].Timestamp = inc.Timestamp
+		result[i].EventType = inc.EventType
+		result[i].Description = inc.Description
+	}
+
+	return result
+}

@@ -28,6 +28,7 @@ type Config struct {
 	ReportsDirectory           string   `json:"reports_directory"`
 	ReportsKeepCount           int      `json:"reports_keep_count"`
 	LogBufferFlushSeconds      int      `json:"log_buffer_flush_seconds"`
+	RecentIncidentsHours       int      `json:"recent_incidents_hours"`
 	AuthEnabled                bool     `json:"auth_enabled"`
 	PasswordHash               string   `json:"password_hash"`
 	Argon2Memory               uint32   `json:"argon2_memory"`
