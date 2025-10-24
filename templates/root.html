@@ -4,9 +4,13 @@
 	<title>Ping Monitor Service</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<style>
+		html {
+			background: #16213e;
+		}
 		body {
 			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
 			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+			background-attachment: fixed;
 			margin: 0;
 			padding: 0;
 			min-height: 100vh;
@@ -228,6 +232,15 @@
 	.target-info span {
 		font-size: 11px;
 	}
+	.target-link {
+		color: #e0e0e0;
+		text-decoration: none;
+		transition: color 0.2s;
+	}
+	.target-link:hover {
+		color: #667eea;
+		text-decoration: underline;
+	}
 	.target-status {
 		margin-left: 0;
 		margin-top: 8px;
@@ -276,7 +289,7 @@
 				{{range .Targets}}
 				<div class="target-item-home">
 					<div class="target-info">
-						<strong style="display: block; color: #e0e0e0; margin-bottom: 4px;">{{.Name}}</strong>
+						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
 						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
 						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
 					</div>
@@ -298,7 +311,7 @@
 				{{range .RecentIncidents}}
 				<div class="target-item-home" style="background: #2a1a1a; border-left: 3px solid #f44336; padding-left: 12px;">
 					<div class="target-info" style="width: 100%;">
-						<strong style="display: block; color: #f48fb1; margin-bottom: 4px;">{{.TargetName}}</strong>
+						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.TargetAddress}}" target="_blank" class="target-link" style="color: #f48fb1;">{{.TargetName}}</a></strong>
 						<span style="color: #999; font-size: 11px; display: block; margin-bottom: 3px;">{{.Timestamp}}</span>
 						<span style="color: #ff8a80; font-size: 12px; display: block;">{{.Description}}</span>
 					</div>
