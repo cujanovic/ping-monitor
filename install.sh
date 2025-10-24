@@ -94,6 +94,7 @@ echo -e "${GREEN}📁 Copying HTML templates and static files...${NC}"
 mkdir -p "$INSTALL_DIR/templates"
 cp templates/*.html "$INSTALL_DIR/templates/" 2>/dev/null || true
 cp templates/*.js "$INSTALL_DIR/templates/" 2>/dev/null || true
+cp templates/*.svg "$INSTALL_DIR/templates/" 2>/dev/null || true
 
 # Restore existing config if this was an update
 if [ "$UPDATE_MODE" = true ] && [ -n "$TEMP_CONFIG" ] && [ -f "$TEMP_CONFIG" ]; then

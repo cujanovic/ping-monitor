@@ -230,6 +230,22 @@ func (pm *PingMonitor) handleStaticJS(w http.ResponseWriter, r *http.Request) {
 	w.Write(jsContent)
 }
 
+// handleStaticFavicon serves the favicon SVG file
+func (pm *PingMonitor) handleStaticFavicon(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+	
+	// Read the favicon SVG file from templates directory
+	faviconContent, err := os.ReadFile("templates/favicon.svg")
+	if err != nil {
+		http.Error(w, "Favicon not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read favicon.svg: %v", err)
+		return
+	}
+	
+	w.Write(faviconContent)
+}
+
 // handleReports handles the reports page
 func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -506,6 +522,7 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/login", securityHeadersMiddleware(pm.handleLogin))
 	http.HandleFunc("/logout", securityHeadersMiddleware(pm.handleLogout))
 	http.HandleFunc("/static/app.js", securityHeadersMiddleware(pm.handleStaticJS))
+	http.HandleFunc("/static/favicon.svg", securityHeadersMiddleware(pm.handleStaticFavicon))
 	
 	// Protected routes (require auth if enabled, with security headers)
 	http.HandleFunc("/", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot))))
