@@ -628,6 +628,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 	Timestamp     string
 	EventType     string
 	Description   string
+	IsResolved    bool
+	Duration      string
 } {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -638,6 +640,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		Timestamp     string
 		EventType     string
 		Description   string
+		IsResolved    bool
+		Duration      string
 		Time          time.Time // For sorting
 	}
 
@@ -651,40 +655,84 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 			continue
 		}
 
-		// Go through recent events
+		// Map to track incidents and their resolutions
+		type ProblemEvent struct {
+			Timestamp   time.Time
+			EventType   string
+			Value       float64
+			Threshold   float64
+			Description string
+			Resolved    bool
+			Duration    time.Duration
+		}
+		
+		problemEvents := make(map[string]*ProblemEvent) // key: event type
+
+		// Go through recent events to find problems and resolutions
 		for _, event := range stats.RecentEvents {
 			// Only include events after cutoff time
 			if event.Timestamp.Before(cutoffTime) {
 				continue
 			}
 
-			// Only include problem events (not recovery/normal events)
-			if event.EventType == "up" || event.EventType == "latency_normal" || event.EventType == "packet_loss_normal" {
-				continue
+			// Check if it's a problem event
+			if event.EventType == "down" || event.EventType == "high_latency" || event.EventType == "packet_loss" {
+				// Create incident description
+				var description string
+				
+				switch event.EventType {
+				case "down":
+					description = fmt.Sprintf("Target went DOWN")
+				case "high_latency":
+					description = fmt.Sprintf("High latency: %.2fms (threshold: %.0fms)", event.Value, event.Threshold)
+				case "packet_loss":
+					description = fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
+				}
+
+				problemEvents[event.EventType] = &ProblemEvent{
+					Timestamp:   event.Timestamp,
+					EventType:   event.EventType,
+					Value:       event.Value,
+					Threshold:   event.Threshold,
+					Description: description,
+					Resolved:    false,
+					Duration:    0,
+				}
 			}
 
-			// Create incident description
-			var description string
-			eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+			// Check if it's a recovery event
+			if event.EventType == "up" && problemEvents["down"] != nil && !problemEvents["down"].Resolved {
+				problemEvents["down"].Resolved = true
+				problemEvents["down"].Duration = event.Duration
+			}
+			if event.EventType == "latency_normal" && problemEvents["high_latency"] != nil && !problemEvents["high_latency"].Resolved {
+				problemEvents["high_latency"].Resolved = true
+				problemEvents["high_latency"].Duration = event.Duration
+			}
+			if event.EventType == "packet_loss_normal" && problemEvents["packet_loss"] != nil && !problemEvents["packet_loss"].Resolved {
+				problemEvents["packet_loss"].Resolved = true
+				problemEvents["packet_loss"].Duration = event.Duration
+			}
+		}
+
+		// Add collected incidents
+		for _, problem := range problemEvents {
+			eventTime := problem.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
 			
-			switch event.EventType {
-			case "down":
-				description = fmt.Sprintf("Target went DOWN")
-			case "high_latency":
-				description = fmt.Sprintf("High latency: %.2fms (threshold: %.0fms)", event.Value, event.Threshold)
-			case "packet_loss":
-				description = fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
-			default:
-				description = fmt.Sprintf("Event: %s", event.EventType)
+			durationStr := ""
+			if problem.Resolved {
+				durationStr = formatDuration(problem.Duration)
 			}
 
 			incidents = append(incidents, Incident{
 				TargetName:    target.Name,
 				TargetAddress: target.TargetAddr,
 				Timestamp:     eventTime.Format("2006-01-02 15:04:05"),
-				EventType:     event.EventType,
-				Description:   description,
-				Time:          event.Timestamp,
+				EventType:     problem.EventType,
+				Description:   problem.Description,
+				IsResolved:    problem.Resolved,
+				Duration:      durationStr,
+				Time:          problem.Timestamp,
 			})
 		}
 	}
@@ -701,6 +749,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		Timestamp     string
 		EventType     string
 		Description   string
+		IsResolved    bool
+		Duration      string
 	}, len(incidents))
 
 	for i, inc := range incidents {
@@ -709,6 +759,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		result[i].Timestamp = inc.Timestamp
 		result[i].EventType = inc.EventType
 		result[i].Description = inc.Description
+		result[i].IsResolved = inc.IsResolved
+		result[i].Duration = inc.Duration
 	}
 
 	return result

@@ -318,6 +318,11 @@
 						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.TargetAddress}}" target="_blank" class="target-link" style="color: #f48fb1;">{{.TargetName}}</a></strong>
 						<span style="color: #999; font-size: 11px; display: block; margin-bottom: 3px;">{{.Timestamp}}</span>
 						<span style="color: #ff8a80; font-size: 12px; display: block;">{{.Description}}</span>
+						{{if .IsResolved}}
+						<span style="color: #4CAF50; font-size: 11px; display: block; margin-top: 4px;">✓ Resolved{{if .Duration}} ({{.Duration}}){{end}}</span>
+						{{else}}
+						<span style="color: #FF9800; font-size: 11px; display: block; margin-top: 4px;">⚠ Ongoing</span>
+						{{end}}
 					</div>
 				</div>
 				{{end}}

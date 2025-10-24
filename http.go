@@ -187,6 +187,8 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			Timestamp     string
 			EventType     string
 			Description   string
+			IsResolved    bool
+			Duration      string
 		}
 		IncidentsHours int
 	}{
@@ -329,6 +331,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			Timestamp     string
 			EventType     string
 			Description   string
+			IsResolved    bool
+			Duration      string
 		}
 		IncidentsHours int
 	}{
@@ -461,6 +465,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			Timestamp     string
 			EventType     string
 			Description   string
+			IsResolved    bool
+			Duration      string
 		}
 		IncidentsHours int
 	}{
