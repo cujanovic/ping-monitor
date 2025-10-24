@@ -5,7 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<style>
 		html {
-			background: #16213e;
+			background: #1a1a2e;
 		}
 		body {
 			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
@@ -233,7 +233,7 @@
 		font-size: 11px;
 	}
 	.target-link {
-		color: #e0e0e0;
+		color: inherit;
 		text-decoration: none;
 		transition: color 0.2s;
 	}
@@ -289,7 +289,7 @@
 				{{range .Targets}}
 				<div class="target-item-home">
 					<div class="target-info">
-						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
+						<strong style="display: block; overflow: hidden; text-overflow: ellipsis; color: #e0e0e0;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
 						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
 						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
 					</div>
