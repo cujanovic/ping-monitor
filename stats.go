@@ -576,7 +576,12 @@ func (pm *PingMonitor) getNextReportTime() time.Time {
 		fmt.Sscanf(parts[1], "%d", &minute)
 	}
 
+	// Apply offset: user specifies time in THEIR timezone, we convert to server time
+	// For example: user wants 07:00 local time with offset +1
+	// Server (UTC) should trigger at 06:00 (07:00 - 1 hour offset)
+	offsetHours := time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour
 	nextReport := time.Date(now.Year(), now.Month(), now.Day(), hour, minute, 0, 0, now.Location())
+	nextReport = nextReport.Add(-offsetHours) // Subtract offset to get server time
 	
 	if pm.config.SummaryReportSchedule == "weekly" {
 		daysUntilMonday := (8 - int(now.Weekday())) % 7
