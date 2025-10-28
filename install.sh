@@ -129,6 +129,71 @@ chmod +x ping-monitor
 
 echo -e "${GREEN}✅ Service binary built successfully${NC}"
 
+# Create network wait script
+echo -e "${GREEN}📡 Creating network wait script...${NC}"
+cat > "$INSTALL_DIR/wait-for-network.sh" << 'WAITSCRIPT'
+#!/bin/bash
+# Wait for network interface to be ready
+MAX_WAIT=60
+WAIT_INTERVAL=2
+elapsed=0
+
+echo "Waiting for network interface to be ready..."
+
+# Extract HTTP bind address from config
+CONFIG_FILE="$1"
+if [ -f "$CONFIG_FILE" ]; then
+    # Parse HTTP address from config.json (handles both "ip:port" and ":port")
+    HTTP_ADDR=$(grep -oP '"http_addr"\s*:\s*"\K[^"]+' "$CONFIG_FILE" 2>/dev/null || echo "")
+    
+    if [ -n "$HTTP_ADDR" ]; then
+        # Extract IP (everything before last colon, or empty if starts with :)
+        BIND_IP="${HTTP_ADDR%:*}"
+        
+        # If BIND_IP equals HTTP_ADDR, it means there's no colon or it's just ":port"
+        if [ "$BIND_IP" = "$HTTP_ADDR" ]; then
+            BIND_IP=""
+        fi
+        
+        echo "Config HTTP address: $HTTP_ADDR"
+        echo "Extracted bind IP: ${BIND_IP:-0.0.0.0 (all interfaces)}"
+        
+        # Wait for specific IP to be available (skip if empty or 0.0.0.0)
+        if [ -n "$BIND_IP" ] && [ "$BIND_IP" != "0.0.0.0" ] && [ "$BIND_IP" != "::" ]; then
+            while [ $elapsed -lt $MAX_WAIT ]; do
+                if ip addr show | grep -q "inet $BIND_IP"; then
+                    echo "✅ Network interface with $BIND_IP is ready"
+                    exit 0
+                fi
+                echo "⏳ Waiting for $BIND_IP... ($elapsed/$MAX_WAIT seconds)"
+                sleep $WAIT_INTERVAL
+                elapsed=$((elapsed + WAIT_INTERVAL))
+            done
+            echo "⚠️  Timeout waiting for $BIND_IP, proceeding anyway..."
+        else
+            echo "✅ Binding to all interfaces, no wait needed"
+        fi
+    fi
+fi
+
+# General network readiness check
+while [ $elapsed -lt $MAX_WAIT ]; do
+    if ip route | grep -q default; then
+        echo "✅ Default route is ready"
+        exit 0
+    fi
+    echo "⏳ Waiting for network... ($elapsed/$MAX_WAIT seconds)"
+    sleep $WAIT_INTERVAL
+    elapsed=$((elapsed + WAIT_INTERVAL))
+done
+
+echo "⚠️  Timeout waiting for network, proceeding anyway (service will auto-restart if bind fails)"
+exit 0
+WAITSCRIPT
+
+chmod +x "$INSTALL_DIR/wait-for-network.sh"
+chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/wait-for-network.sh"
+
 # Create systemd service file
 echo -e "${GREEN}⚙️  Creating systemd service...${NC}"
 cat > "$SERVICE_FILE" << EOF
@@ -143,9 +208,16 @@ Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
 WorkingDirectory=$INSTALL_DIR
+
+# Wait for network interface before starting
+ExecStartPre=$INSTALL_DIR/wait-for-network.sh $INSTALL_DIR/config.json
+
 ExecStart=$INSTALL_DIR/ping-monitor
+
+# Auto-restart if network wasn't ready (will retry every 15 seconds)
 Restart=always
-RestartSec=10
+RestartSec=15
+
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=ping-monitor

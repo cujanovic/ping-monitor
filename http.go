@@ -545,8 +545,8 @@ func (pm *PingMonitor) startHTTPServer() {
 		pm.addLog(fmt.Sprintf("Starting HTTP server on %s", pm.config.HTTPListen))
 		
 		if err := http.ListenAndServe(pm.config.HTTPListen, nil); err != nil {
-			log.Printf("❌ HTTP server error: %v", err)
-			pm.addLog(fmt.Sprintf("HTTP server error: %v", err))
+			// Fatal error - exit so systemd can restart the service (network may not be ready)
+			log.Fatalf("❌ Failed to start HTTP server on %s: %v", pm.config.HTTPListen, err)
 		}
 	}()
 }

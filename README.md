@@ -557,7 +557,16 @@ Uses a worker pool pattern to efficiently handle large numbers of targets. The `
    - **"Too many failed attempts"**: Wait 15 minutes or restart service to clear lockout
    - **Session expires quickly**: Increase `session_timeout_minutes` in config.json
    - **Forgot password**: Generate new hash and update config.json
-   - **Can't generate hash**: Ensure binary is compiled: `go build`
+
+10. **Service starts but HTTP server not listening (VPN/specific IP binding)**:
+   - **Symptom**: Service appears to start but HTTP interface is unreachable. After `systemctl restart` it works.
+   - **Cause**: Service starts before the network interface (especially VPN interfaces) is fully ready.
+   - **Solution**: The install script includes a network wait mechanism that:
+     - Automatically detects your `http_addr` from config.json
+     - Waits up to 60 seconds for the specific IP to be available
+     - Auto-restarts every 15 seconds if binding fails
+   - **Check logs**: `sudo journalctl -u ping-monitor -f` to see network wait status
+   - **Manual verification**: Run `ip addr show` to verify your interface is up before service starts
 
 ### Testing
 
