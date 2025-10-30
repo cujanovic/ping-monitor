@@ -280,7 +280,7 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
 - **recent_incidents_hours**: How many hours of recent incidents to show in reports (default: 24)
 - **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
-- **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW)
+- **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW, install script auto-configures systemd)
 
 #### Authentication Configuration (Optional)
 - **auth_enabled**: Enable password authentication for HTTP dashboard (default: false)

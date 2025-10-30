@@ -218,6 +218,16 @@ WAITSCRIPT
 chmod +x "$INSTALL_DIR/wait-for-network.sh"
 chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/wait-for-network.sh"
 
+# Check if raw sockets are enabled to determine NoNewPrivileges setting
+NO_NEW_PRIVILEGES="true"
+if [ -f "$INSTALL_DIR/config.json" ]; then
+    USE_RAW_SOCKETS=$(grep -o '"use_raw_sockets"[[:space:]]*:[[:space:]]*true' "$INSTALL_DIR/config.json")
+    if [ -n "$USE_RAW_SOCKETS" ]; then
+        NO_NEW_PRIVILEGES="false"
+        echo -e "${GREEN}ℹ️  Raw sockets enabled - setting NoNewPrivileges=false for capabilities${NC}"
+    fi
+fi
+
 # Create systemd service file
 echo -e "${GREEN}⚙️  Creating systemd service...${NC}"
 cat > "$SERVICE_FILE" << EOF
@@ -247,7 +257,8 @@ StandardError=journal
 SyslogIdentifier=ping-monitor
 
 # Security settings
-NoNewPrivileges=true
+# NoNewPrivileges must be false when using raw sockets (CAP_NET_RAW)
+NoNewPrivileges=$NO_NEW_PRIVILEGES
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
