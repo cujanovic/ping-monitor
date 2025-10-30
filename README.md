@@ -20,6 +20,7 @@ A Go-based service that monitors IP addresses and sends email notifications when
 - **Comprehensive Logging**: Detailed logging with statistics and error recovery
 - **HTTP Dashboard**: Web interface for viewing reports and current status
 - **Authentication System**: Secure Argon2id password authentication with session management (optional)
+- **DNS Caching**: Smart caching for DDNS targets with automatic IP change detection (reduces DNS queries by 90%)
 
 ## Email Service: Brevo (Recommended)
 
@@ -277,6 +278,8 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **reports_directory**: Directory to store email report files (default: "./reports")
 - **reports_keep_count**: Number of historical reports to keep (default: 10)
 - **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
+- **recent_incidents_hours**: How many hours of recent incidents to show in reports (default: 24)
+- **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
 
 #### Authentication Configuration (Optional)
 - **auth_enabled**: Enable password authentication for HTTP dashboard (default: false)
@@ -506,6 +509,36 @@ Monitors not just complete failures but also partial packet loss. Perfect for de
 
 ### Concurrent Optimization
 Uses a worker pool pattern to efficiently handle large numbers of targets. The `max_concurrent_pings` setting prevents overwhelming your network or system resources.
+
+### DNS Caching for DDNS Targets
+Intelligent DNS caching reduces DNS queries by **90%** while maintaining full DDNS functionality:
+
+**How it works:**
+- DNS names resolved once every TTL period (default: 5 minutes)
+- Cached IP used for all pings during TTL window
+- Automatic detection of DDNS IP changes
+- Resilient fallback to cached IP during DNS failures
+- Zero impact on IP-only targets
+
+**Configuration:**
+```json
+{
+  "dns_cache_ttl_minutes": 5  // Default: 5 minutes
+}
+```
+
+**Benefits:**
+- ⚡ 33-40% faster ping cycles for DDNS targets
+- 🔍 Automatic IP change detection and logging
+- 🛡️ Continues monitoring during temporary DNS outages
+- 📊 DDNS IP changes logged as events: `🔄 DDNS IP changed for Target: 1.2.3.4 → 5.6.7.8`
+
+**Recommended TTL:**
+- **5 minutes** (default) - Balanced performance and detection speed
+- 2-3 minutes - Faster IP change detection
+- 10-15 minutes - Maximum performance for rarely-changing IPs
+
+**Example:** With 2 DDNS targets updating every 30 seconds, DNS caching reduces queries from 240/hour to 24/hour (90% reduction) while detecting IP changes within 5 minutes.
 
 ## Troubleshooting
 

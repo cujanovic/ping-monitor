@@ -19,6 +19,7 @@
   "reports_keep_count": 10,
   "log_buffer_flush_seconds": 5,
   "recent_incidents_hours": 24,
+  "dns_cache_ttl_minutes": 5,
   "auth_enabled": false,
   "password_hash": "",
   "argon2_memory": 65536,

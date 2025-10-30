@@ -34,6 +34,7 @@ type PingMonitor struct {
 	sessionManager     *SessionManager
 	templates          *template.Template
 	brevoClient        *brevo.APIClient
+	dnsCache           *DNSCache // DNS resolution cache
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
 	semaphore          chan struct{}
@@ -94,6 +95,16 @@ func NewPingMonitor(config Config) *PingMonitor {
 	if config.RecentIncidentsHours == 0 {
 		config.RecentIncidentsHours = 24
 	}
+
+	// Set default DNS cache TTL
+	if config.DNSCacheTTLMinutes == 0 {
+		config.DNSCacheTTLMinutes = 5 // Default: 5 minutes
+	}
+
+	// Initialize DNS cache
+	dnsCacheTTL := time.Duration(config.DNSCacheTTLMinutes) * time.Minute
+	dnsCache := NewDNSCache(dnsCacheTTL)
+	log.Printf("🗃️  DNS cache initialized with %d minute TTL", config.DNSCacheTTLMinutes)
 
 	// Create reports directory if specified
 	if config.ReportsDirectory != "" {
@@ -157,6 +168,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		sessionManager:     sessionManager,
 		templates:          templates,
 		brevoClient:        brevoClient,
+		dnsCache:           dnsCache,
 		semaphore:          semaphore,
 	}
 
@@ -191,6 +203,15 @@ func (pm *PingMonitor) Start() {
 		pm.addLog(msg)
 		pm.startHTTPServer()
 	}
+
+	// Start DNS cache cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(30 * time.Minute) // Cleanup every 30 minutes
+		defer ticker.Stop()
+		for range ticker.C {
+			pm.dnsCache.CleanupExpired()
+		}
+	}()
 
 	// Load previous report if available
 	if pm.config.ReportsDirectory != "" {

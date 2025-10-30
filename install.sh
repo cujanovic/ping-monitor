@@ -120,9 +120,9 @@ cd "$INSTALL_DIR"
 echo "Installing Go dependencies..."
 su -s /bin/bash -c "cd $INSTALL_DIR && go mod tidy" "$SERVICE_USER"
 
-# Build the binary
-echo "Building ping-monitor binary..."
-su -s /bin/bash -c "cd $INSTALL_DIR && go build -o ping-monitor" "$SERVICE_USER"
+# Build the binary with optimizations
+echo "Building ping-monitor binary (optimized)..."
+su -s /bin/bash -c "cd $INSTALL_DIR && go build -ldflags='-s -w' -trimpath -o ping-monitor" "$SERVICE_USER"
 
 # Make binary executable
 chmod +x ping-monitor

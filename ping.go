@@ -10,9 +10,26 @@ import (
 
 // pingTarget pings a single target and returns success status, packet loss, and average RTT
 func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
-	pinger, err := ping.NewPinger(target.TargetAddr)
+	// Resolve target address using DNS cache (handles both IPs and DNS names)
+	resolvedAddr, ipChanged, err := pm.dnsCache.Resolve(target.TargetAddr)
 	if err != nil {
-		log.Printf("⚠️  Error creating pinger for %s: %v", formatTargetInfo(target), err)
+		log.Printf("⚠️  DNS resolution failed for %s: %v", formatTargetInfo(target), err)
+		return false, 100, 0
+	}
+	
+	// Log DDNS IP changes
+	if ipChanged {
+		logMsg := fmt.Sprintf("🔄 DDNS IP changed for %s: now resolves to %s", 
+			formatTargetInfo(target), resolvedAddr)
+		log.Printf(logMsg)
+		pm.addLog(logMsg)
+		pm.recordEvent(target, "ddns_ip_changed", 0, 0, 0)
+	}
+	
+	pinger, err := ping.NewPinger(resolvedAddr)
+	if err != nil {
+		log.Printf("⚠️  Error creating pinger for %s (%s): %v", 
+			formatTargetInfo(target), resolvedAddr, err)
 		return false, 100, 0
 	}
 

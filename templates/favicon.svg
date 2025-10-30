@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <radialGradient id="pulse" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#4CAF50;stop-opacity:0.8" />
+      <stop offset="70%" style="stop-color:#45a049;stop-opacity:0.4" />
+      <stop offset="100%" style="stop-color:#2e7d32;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  <circle cx="50" cy="50" r="45" fill="url(#pulse)">
+    <animate attributeName="r" from="20" to="45" dur="2s" repeatCount="indefinite" />
+    <animate attributeName="opacity" from="1" to="0.3" dur="2s" repeatCount="indefinite" />
+  </circle>
+  <circle cx="50" cy="50" r="8" fill="#4CAF50" />
+</svg>
+

@@ -69,3 +69,19 @@ type ReportWithContent struct {
 	Content  string
 }
 
+// DNSCacheEntry holds cached DNS resolution with expiry
+type DNSCacheEntry struct {
+	ResolvedIP  string    // The resolved IP address
+	OriginalDNS string    // The original DNS name
+	CachedAt    time.Time // When this was cached
+	ExpiresAt   time.Time // When this cache expires
+	mu          sync.RWMutex
+}
+
+// DNSCache manages DNS resolution caching
+type DNSCache struct {
+	entries map[string]*DNSCacheEntry // key: target address (DNS name)
+	mu      sync.RWMutex
+	ttl     time.Duration // How long to cache DNS entries
+}
+
