@@ -61,7 +61,7 @@ go mod tidy
      "email": {
        "api_key": "your-brevo-api-key-here",
        "from": "monitor@yourdomain.com",
-       "to": "admin@yourcompany.com"
+       "to": "admin@yourdomain.com"
      }
    }
    ```
@@ -89,13 +89,32 @@ Edit `config.json` to add your monitoring targets:
   "email_rate_limit_per_hour": 60,
   "max_concurrent_pings": 10,
   "default_timeout_seconds": 10,
+  "report_time_offset_hours": 0,
   "summary_report_enabled": true,
   "summary_report_schedule": "daily",
   "summary_report_time": "09:00",
+  "http_enabled": true,
+  "http_listen": "127.0.0.1:8080",
+  "http_log_lines": 20,
+  "http_rate_limit_per_minute": 60,
+  "reports_directory": "./reports",
+  "reports_keep_count": 10,
+  "log_buffer_flush_seconds": 5,
+  "recent_incidents_hours": 24,
+  "dns_cache_ttl_minutes": 5,
+  "use_raw_sockets": false,
+  "auth_enabled": false,
+  "password_hash": "",
+  "argon2_memory": 65536,
+  "argon2_time": 3,
+  "argon2_threads": 4,
+  "session_timeout_minutes": 60,
+  "max_login_attempts": 5,
+  "lockout_duration_minutes": 15,
   "email": {
-    "api_key": "your-brevo-api-key",
+    "api_key": "your-brevo-api-key-here",
     "from": "monitor@yourdomain.com",
-    "to": "admin@yourcompany.com"
+    "to": "admin@yourdomain.com"
   },
   "targets": [
     {
@@ -196,6 +215,12 @@ You'll be prompted to enter and confirm your password. The tool will generate an
 **2. Update config.json:**
 ```json
 {
+  "ping_interval_seconds": 30,
+  "ping_count": 3,
+  ...
+  "http_enabled": true,
+  "http_listen": "127.0.0.1:8080",
+  ...
   "auth_enabled": true,
   "password_hash": "$argon2id$v=19$m=65536,t=3,p=4$YOUR_GENERATED_HASH",
   "argon2_memory": 65536,
@@ -204,6 +229,10 @@ You'll be prompted to enter and confirm your password. The tool will generate an
   "session_timeout_minutes": 60,
   "max_login_attempts": 5,
   "lockout_duration_minutes": 15,
+  "email": {
+    "api_key": "your-brevo-api-key-here",
+    ...
+  },
   ...
 }
 ```
@@ -268,6 +297,7 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **email_rate_limit_per_hour**: Maximum emails to send per hour (default: 60, protects against quota exhaustion)
 - **max_concurrent_pings**: Maximum number of concurrent ping operations (default: 10, optimizes for large target lists)
 - **default_timeout_seconds**: Default timeout for ping operations in seconds (default: 10)
+- **report_time_offset_hours**: Timezone offset for report timestamps in hours (default: 0, e.g., +1 for UTC+1, -5 for UTC-5)
 - **summary_report_enabled**: Enable daily/weekly summary reports (default: false)
 - **summary_report_schedule**: Report frequency - "daily" or "weekly" (default: "daily")
 - **summary_report_time**: Time to send reports in HH:MM format (default: "09:00")
