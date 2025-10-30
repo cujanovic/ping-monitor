@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"html/template"
 	"log"
 	"math/rand"
+	"net"
 	"os"
 	"sync"
 	"time"
@@ -25,19 +27,20 @@ type PingMonitor struct {
 	targetStats        map[string]*TargetStats
 	statsStartTime     time.Time
 	lastLatency        map[string]float64 // Latest ping latency in ms
-	logBuffer          []LogEntry
-	logPendingBuffer   []LogEntry
-	logMu              sync.Mutex
 	lastEmailReport    string
 	lastEmailReportMu  sync.RWMutex
 	httpRateLimiter    *HTTPRateLimiter
 	sessionManager     *SessionManager
 	templates          *template.Template
 	brevoClient        *brevo.APIClient
-	dnsCache           *DNSCache // DNS resolution cache
+	dnsCache           *DNSCache        // DNS resolution cache
+	asyncLogger        *AsyncLogger     // Async logging system
+	workerPool         *WorkerPool      // Worker pool for concurrent operations
+	statsCache         *StatsCache      // Cached statistics for HTTP
+	incidentsBuffer    *CircularBuffer  // Circular buffer for recent incidents
+	targetLocks        map[string]*TargetLock // Per-target locks
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
-	semaphore          chan struct{}
 }
 
 // NewPingMonitor creates a new PingMonitor instance
@@ -63,9 +66,6 @@ func NewPingMonitor(config Config) *PingMonitor {
 	if config.DefaultTimeoutSeconds == 0 {
 		config.DefaultTimeoutSeconds = 10
 	}
-
-	// Create semaphore for concurrent ping limiting
-	semaphore := make(chan struct{}, config.MaxConcurrentPings)
 
 	// Initialize target stats
 	targetStats := make(map[string]*TargetStats)
@@ -149,6 +149,26 @@ func NewPingMonitor(config Config) *PingMonitor {
 	// Initialize HTML templates
 	templates := initTemplates()
 
+	// Initialize async logger
+	flushInterval := time.Duration(config.LogBufferFlushSeconds) * time.Second
+	asyncLogger := NewAsyncLogger(config.HTTPLogLines, flushInterval)
+
+	// Initialize worker pool (use max_concurrent_pings as worker count)
+	workerPool := NewWorkerPool(config.MaxConcurrentPings)
+
+	// Initialize stats cache
+	statsCache := NewStatsCache()
+
+	// Initialize circular buffer for recent incidents (capacity = incidents per hour * hours)
+	incidentsCapacity := 100 // Reasonable default
+	incidentsBuffer := NewCircularBuffer(incidentsCapacity)
+
+	// Initialize per-target locks
+	targetLocks := make(map[string]*TargetLock)
+	for _, target := range config.Targets {
+		targetLocks[target.TargetAddr] = &TargetLock{}
+	}
+
 	pm := &PingMonitor{
 		config:             config,
 		downTargets:        make(map[string]bool),
@@ -162,18 +182,17 @@ func NewPingMonitor(config Config) *PingMonitor {
 		targetStats:        targetStats,
 		statsStartTime:     time.Now(),
 		lastLatency:        make(map[string]float64),
-		logBuffer:          make([]LogEntry, 0, config.HTTPLogLines),
-		logPendingBuffer:   make([]LogEntry, 0),
 		httpRateLimiter:    rateLimiter,
 		sessionManager:     sessionManager,
 		templates:          templates,
 		brevoClient:        brevoClient,
 		dnsCache:           dnsCache,
-		semaphore:          semaphore,
+		asyncLogger:        asyncLogger,
+		workerPool:         workerPool,
+		statsCache:         statsCache,
+		incidentsBuffer:    incidentsBuffer,
+		targetLocks:        targetLocks,
 	}
-
-	// Start log buffer flusher
-	go pm.logBufferFlusher()
 
 	return pm
 }
@@ -221,6 +240,9 @@ func (pm *PingMonitor) Start() {
 		pm.loadLatestReport()
 	}
 
+	// Pre-resolve DNS targets in parallel for faster first cycle
+	pm.preResolveDNSTargets()
+
 	// Shuffle targets for randomized monitoring
 	targets := make([]Target, len(pm.config.Targets))
 	copy(targets, pm.config.Targets)
@@ -265,13 +287,17 @@ func (pm *PingMonitor) Start() {
 // startMonitoringLoop runs the monitoring loop for a single target
 func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interval time.Duration) {
 	time.Sleep(delay)
-	pm.monitorTarget(t)
+	// Cache time.Now() once per cycle and pass it down
+	now := time.Now()
+	pm.monitorTarget(t, now)
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		pm.monitorTarget(t)
+		// Cache time.Now() once per cycle and pass it down
+		now := time.Now()
+		pm.monitorTarget(t, now)
 	}
 }
 
@@ -328,5 +354,44 @@ func (pm *PingMonitor) getPacketLossThreshold(target Target) int {
 // getReportTime returns the current time adjusted by the configured offset
 func (pm *PingMonitor) getReportTime() time.Time {
 	return time.Now().Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+}
+
+// preResolveDNSTargets pre-resolves all DNS targets in parallel on startup
+func (pm *PingMonitor) preResolveDNSTargets() {
+	dnsTargets := make([]Target, 0)
+	
+	// Identify DNS targets (not IPs)
+	for _, target := range pm.config.Targets {
+		if net.ParseIP(target.TargetAddr) == nil {
+			dnsTargets = append(dnsTargets, target)
+		}
+	}
+	
+	if len(dnsTargets) == 0 {
+		return // No DNS targets to resolve
+	}
+	
+	log.Printf("🔍 Pre-resolving %d DNS targets in parallel...", len(dnsTargets))
+	
+	var wg sync.WaitGroup
+	startTime := time.Now()
+	
+	for _, target := range dnsTargets {
+		wg.Add(1)
+		go func(t Target) {
+			defer wg.Done()
+			resolvedIP, _, err := pm.dnsCache.Resolve(t.TargetAddr)
+			if err != nil {
+				log.Printf("⚠️  Pre-resolution failed for %s: %v", t.Name, err)
+			} else {
+				log.Printf("✓ Pre-resolved %s → %s", t.Name, resolvedIP)
+			}
+		}(target)
+	}
+	
+	wg.Wait()
+	duration := time.Since(startTime)
+	log.Printf("✅ Pre-resolved %d DNS targets in %v", len(dnsTargets), duration)
+	pm.addLog(fmt.Sprintf("Pre-resolved %d DNS targets in %v", len(dnsTargets), duration))
 }
 

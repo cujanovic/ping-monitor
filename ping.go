@@ -84,11 +84,9 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 }
 
 // monitorTarget monitors a single target with graceful degradation
-func (pm *PingMonitor) monitorTarget(target Target) {
-	// Acquire semaphore to limit concurrent pings
-	pm.semaphore <- struct{}{}
+func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
+	// Panic recovery (concurrency now handled by worker pool)
 	defer func() {
-		<-pm.semaphore
 		if r := recover(); r != nil {
 			log.Printf("🆘 Recovered from panic in monitorTarget for %s: %v",
 				formatTargetInfo(target), r)
@@ -104,22 +102,22 @@ func (pm *PingMonitor) monitorTarget(target Target) {
 	wasDown := pm.downTargets[target.TargetAddr]
 
 	if !success && !wasDown {
-		pm.handleTargetDown(target, packetLoss)
+		pm.handleTargetDown(target, packetLoss, now)
 	} else if success && wasDown {
 		pm.handleTargetRecovered(target, rttMs, packetLoss)
 	}
 
 	// Check packet loss and latency thresholds for targets that are up
 	if success {
-		pm.checkPacketLossThreshold(target, packetLoss, rttMs)
-		pm.checkLatencyThreshold(target, rttMs, packetLoss)
+		pm.checkPacketLossThreshold(target, packetLoss, rttMs, now)
+		pm.checkLatencyThreshold(target, rttMs, packetLoss, now)
 	}
 }
 
 // handleTargetDown handles when a target goes down
-func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int) {
+func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.Time) {
 	pm.downTargets[target.TargetAddr] = true
-	pm.downSince[target.TargetAddr] = time.Now()
+	pm.downSince[target.TargetAddr] = now
 	logMsg := fmt.Sprintf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
 	log.Printf(logMsg)
 	pm.mu.Unlock()
@@ -161,14 +159,14 @@ func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packe
 }
 
 // checkPacketLossThreshold checks and handles packet loss threshold violations
-func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, rttMs float64) {
+func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, rttMs float64, now time.Time) {
 	packetLossThreshold := pm.getPacketLossThreshold(target)
 	hadPacketLoss := pm.packetLossTargets[target.TargetAddr]
 	hasPacketLoss := packetLoss >= packetLossThreshold
 
 	if hasPacketLoss && !hadPacketLoss {
 		pm.packetLossTargets[target.TargetAddr] = true
-		pm.packetLossSince[target.TargetAddr] = time.Now()
+		pm.packetLossSince[target.TargetAddr] = now
 		logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)",
 			formatTargetInfo(target), packetLoss, packetLossThreshold)
 		log.Printf(logMsg)
@@ -210,14 +208,14 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 }
 
 // checkLatencyThreshold checks and handles latency threshold violations
-func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packetLoss int) {
+func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packetLoss int, now time.Time) {
 	threshold := pm.getTargetThreshold(target)
 	wasSlow := pm.slowTargets[target.TargetAddr]
 	isSlow := rttMs > float64(threshold)
 
 	if isSlow && !wasSlow {
 		pm.slowTargets[target.TargetAddr] = true
-		pm.slowSince[target.TargetAddr] = time.Now()
+		pm.slowSince[target.TargetAddr] = now
 		logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)",
 			formatTargetInfo(target), rttMs, threshold)
 		log.Printf(logMsg)

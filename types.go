@@ -43,6 +43,49 @@ type LogEntry struct {
 	Message   string
 }
 
+// AsyncLogger handles async logging with channels
+type AsyncLogger struct {
+	logChan      chan LogEntry
+	buffer       []LogEntry
+	maxLines     int
+	mu           sync.RWMutex
+	flushTicker  *time.Ticker
+	stopChan     chan struct{}
+}
+
+// TargetLock provides per-target synchronization
+type TargetLock struct {
+	downMu        sync.RWMutex
+	slowMu        sync.RWMutex
+	packetLossMu  sync.RWMutex
+	statsMu       sync.RWMutex
+}
+
+// CachedStats holds pre-calculated statistics for HTTP serving
+type CachedStats struct {
+	data      interface{}
+	timestamp time.Time
+	mu        sync.RWMutex
+}
+
+// WorkerPool manages concurrent ping operations
+type WorkerPool struct {
+	workers   int
+	taskChan  chan func()
+	wg        sync.WaitGroup
+	stopChan  chan struct{}
+}
+
+// CircularBuffer for recent incidents
+type CircularBuffer struct {
+	items    []interface{}
+	head     int
+	tail     int
+	count    int
+	capacity int
+	mu       sync.RWMutex
+}
+
 // HTTPRateLimiter tracks HTTP requests per IP
 type HTTPRateLimiter struct {
 	requests map[string][]time.Time

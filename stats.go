@@ -83,54 +83,14 @@ func (pm *PingMonitor) recordEvent(target Target, eventType string, value float6
 
 // addLog adds a log entry to the pending buffer
 func (pm *PingMonitor) addLog(message string) {
-	entry := LogEntry{
-		Timestamp: pm.getReportTime(),
-		Message:   message,
-	}
-
-	pm.logMu.Lock()
-	pm.logPendingBuffer = append(pm.logPendingBuffer, entry)
-	pm.logMu.Unlock()
+	pm.asyncLogger.Log(message)
 }
 
-// logBufferFlusher periodically flushes pending logs
-func (pm *PingMonitor) logBufferFlusher() {
-	ticker := time.NewTicker(time.Duration(pm.config.LogBufferFlushSeconds) * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		pm.flushLogBuffer()
-	}
-}
-
-// flushLogBuffer moves pending logs to the main buffer
-func (pm *PingMonitor) flushLogBuffer() {
-	pm.logMu.Lock()
-	defer pm.logMu.Unlock()
-
-	if len(pm.logPendingBuffer) == 0 {
-		return
-	}
-
-	pm.logBuffer = append(pm.logBuffer, pm.logPendingBuffer...)
-	
-	if len(pm.logBuffer) > pm.config.HTTPLogLines {
-		pm.logBuffer = pm.logBuffer[len(pm.logBuffer)-pm.config.HTTPLogLines:]
-	}
-	
-	pm.logPendingBuffer = pm.logPendingBuffer[:0]
-}
+// Removed logBufferFlusher and flushLogBuffer - now handled by AsyncLogger
 
 // getRecentLogs returns the recent log entries
 func (pm *PingMonitor) getRecentLogs() []LogEntry {
-	pm.flushLogBuffer()
-	
-	pm.logMu.Lock()
-	defer pm.logMu.Unlock()
-
-	logs := make([]LogEntry, len(pm.logBuffer))
-	copy(logs, pm.logBuffer)
-	return logs
+	return pm.asyncLogger.GetLogs()
 }
 
 // saveReportToFile saves a report to disk
