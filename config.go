@@ -30,6 +30,7 @@ type Config struct {
 	LogBufferFlushSeconds      int      `json:"log_buffer_flush_seconds"`
 	RecentIncidentsHours       int      `json:"recent_incidents_hours"`
 	DNSCacheTTLMinutes         int      `json:"dns_cache_ttl_minutes"`
+	UseRawSockets              bool     `json:"use_raw_sockets"`
 	AuthEnabled                bool     `json:"auth_enabled"`
 	PasswordHash               string   `json:"password_hash"`
 	Argon2Memory               uint32   `json:"argon2_memory"`

@@ -35,7 +35,7 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 
 	pinger.Count = pm.config.PingCount
 	pinger.Timeout = pm.getTargetTimeout(target)
-	pinger.SetPrivileged(false)
+	pinger.SetPrivileged(pm.config.UseRawSockets) // Configurable: raw sockets for better performance
 
 	err = pinger.Run()
 	if err != nil {

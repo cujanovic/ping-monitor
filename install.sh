@@ -127,6 +127,30 @@ su -s /bin/bash -c "cd $INSTALL_DIR && go build -ldflags='-s -w' -trimpath -o pi
 # Make binary executable
 chmod +x ping-monitor
 
+# Check if raw sockets are enabled in config and grant capability if needed
+if [ -f "$INSTALL_DIR/config.json" ]; then
+    USE_RAW=$(grep -o '"use_raw_sockets"[[:space:]]*:[[:space:]]*true' "$INSTALL_DIR/config.json")
+    if [ -n "$USE_RAW" ]; then
+        echo -e "${GREEN}🔐 Raw sockets enabled in config, granting CAP_NET_RAW capability...${NC}"
+        setcap cap_net_raw+ep ping-monitor
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✅ CAP_NET_RAW capability granted${NC}"
+            getcap ping-monitor | grep cap_net_raw > /dev/null
+            if [ $? -eq 0 ]; then
+                echo -e "${GREEN}✅ Capability verified (10-20ms faster pings)${NC}"
+            fi
+        else
+            echo -e "${YELLOW}⚠️  Failed to set capability. Install 'libcap' package.${NC}"
+            echo -e "${YELLOW}   Service will fall back to unprivileged mode.${NC}"
+        fi
+    else
+        echo -e "${GREEN}ℹ️  Raw sockets disabled in config (using unprivileged mode)${NC}"
+        echo -e "${GREEN}   To enable: Set use_raw_sockets: true in config.json${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  Config file not found, skipping capability grant${NC}"
+fi
+
 echo -e "${GREEN}✅ Service binary built successfully${NC}"
 
 # Create network wait script

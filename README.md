@@ -280,6 +280,7 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
 - **recent_incidents_hours**: How many hours of recent incidents to show in reports (default: 24)
 - **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
+- **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW)
 
 #### Authentication Configuration (Optional)
 - **auth_enabled**: Enable password authentication for HTTP dashboard (default: false)
@@ -548,6 +549,8 @@ The service includes several low-overhead optimizations for maximum efficiency:
 **Cached Timestamps:** `time.Now()` is called once per cycle instead of 3-4 times, reducing syscalls by 67-75% and lowering CPU usage by 1-2%.
 
 **Build Optimizations:** Binary compiled with `-ldflags="-s -w" -trimpath` for 5-10% faster execution and 30% smaller size.
+
+**Raw Socket ICMP (Optional):** Configurable privileged ICMP using `CAP_NET_RAW` capability for 10-20ms faster pings. Enable with `use_raw_sockets: true` in config. Automatically falls back to unprivileged mode if capability unavailable. No root access required - uses Linux capabilities.
 
 **Advanced Performance Features:**
 - **Async Logging:** Non-blocking channel-based logging (90% faster, zero blocking)

@@ -313,6 +313,12 @@ func (pm *PingMonitor) logStartupInfo() {
 	log.Printf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes)
 	log.Printf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour)
 	log.Printf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings)
+	
+	if pm.config.UseRawSockets {
+		log.Printf("   • Raw Sockets: enabled (requires CAP_NET_RAW)")
+	} else {
+		log.Printf("   • Raw Sockets: disabled (unprivileged mode)")
+	}
 
 	if pm.config.SummaryReportEnabled {
 		msg := "   • Summary Reports: " + pm.config.SummaryReportSchedule + " at " + pm.config.SummaryReportTime
