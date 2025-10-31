@@ -262,7 +262,7 @@ func (pm *PingMonitor) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 		
 		// Check for session cookie
-		cookie, err := r.Cookie("session")
+		cookie, err := r.Cookie("ping_monitor_session")
 		if err != nil || !pm.sessionManager.ValidateSession(cookie.Value) {
 			// Redirect to login with return URL (validated)
 			returnURL := r.URL.Path
@@ -365,7 +365,7 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 		
 		// Set cookie (HTTP-only, SameSite, no Secure flag for HTTP/WireGuard)
 		http.SetCookie(w, &http.Cookie{
-			Name:     "session",
+			Name:     "ping_monitor_session",
 			Value:    token,
 			Path:     "/",
 			MaxAge:   pm.config.SessionTimeoutMinutes * 60,
@@ -410,14 +410,14 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 // handleLogout handles logout
 func (pm *PingMonitor) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Get session cookie
-	cookie, err := r.Cookie("session")
+	cookie, err := r.Cookie("ping_monitor_session")
 	if err == nil {
 		pm.sessionManager.DeleteSession(cookie.Value)
 	}
 	
 	// Clear cookie
 	http.SetCookie(w, &http.Cookie{
-		Name:     "session",
+		Name:     "ping_monitor_session",
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
