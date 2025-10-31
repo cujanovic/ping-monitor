@@ -29,6 +29,7 @@ type Config struct {
 	ReportsKeepCount           int      `json:"reports_keep_count"`
 	LogBufferFlushSeconds      int      `json:"log_buffer_flush_seconds"`
 	RecentIncidentsHours       int      `json:"recent_incidents_hours"`
+	RecentEventsBufferSize     int      `json:"recent_events_buffer_size"`
 	DNSCacheTTLMinutes         int      `json:"dns_cache_ttl_minutes"`
 	UseRawSockets              bool     `json:"use_raw_sockets"`
 	AuthEnabled                bool     `json:"auth_enabled"`

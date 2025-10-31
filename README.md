@@ -101,6 +101,7 @@ Edit `config.json` to add your monitoring targets:
   "reports_keep_count": 10,
   "log_buffer_flush_seconds": 5,
   "recent_incidents_hours": 24,
+  "recent_events_buffer_size": 500,
   "dns_cache_ttl_minutes": 5,
   "use_raw_sockets": false,
   "auth_enabled": false,
@@ -309,6 +310,7 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **reports_keep_count**: Number of historical reports to keep (default: 10)
 - **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
 - **recent_incidents_hours**: How many hours of recent incidents to show in reports (default: 24)
+- **recent_events_buffer_size**: Maximum number of recent events to keep per target (default: 500, increase for high-frequency incidents)
 - **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
 - **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW, install script auto-configures systemd)
 

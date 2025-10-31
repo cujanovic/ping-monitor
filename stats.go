@@ -76,8 +76,10 @@ func (pm *PingMonitor) recordEvent(target Target, eventType string, value float6
 
 	stats.RecentEvents = append(stats.RecentEvents, event)
 	
-	if len(stats.RecentEvents) > 50 {
-		stats.RecentEvents = stats.RecentEvents[len(stats.RecentEvents)-50:]
+	// Keep last N events based on config (default: 500 for 24h+ of incidents)
+	maxEvents := pm.config.RecentEventsBufferSize
+	if len(stats.RecentEvents) > maxEvents {
+		stats.RecentEvents = stats.RecentEvents[len(stats.RecentEvents)-maxEvents:]
 	}
 }
 

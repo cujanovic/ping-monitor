@@ -100,6 +100,11 @@ func NewPingMonitor(config Config) *PingMonitor {
 	if config.DNSCacheTTLMinutes == 0 {
 		config.DNSCacheTTLMinutes = 5 // Default: 5 minutes
 	}
+	
+	// Set default recent events buffer size
+	if config.RecentEventsBufferSize == 0 {
+		config.RecentEventsBufferSize = 500 // Default: 500 events (24h+ of high-frequency incidents)
+	}
 
 	// Initialize DNS cache
 	dnsCacheTTL := time.Duration(config.DNSCacheTTLMinutes) * time.Minute
