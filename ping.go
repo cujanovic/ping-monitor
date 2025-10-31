@@ -57,10 +57,14 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	success := packetsRecv > 0
 	avgRttMs := float64(stats.AvgRtt) / float64(time.Millisecond)
 
-	// Store latest latency
+	// Store latest latency (only if valid)
 	pm.mu.Lock()
-	if success {
+	if success && avgRttMs > 0 {
 		pm.lastLatency[target.TargetAddr] = avgRttMs
+	} else if success && avgRttMs == 0 {
+		// Log when we get a successful ping but 0 latency (rare edge case)
+		log.Printf("⚠️  %s: Successful ping but zero latency (packets recv: %d, sent: %d)", 
+			formatTargetInfo(target), packetsRecv, packetsSent)
 	}
 	pm.mu.Unlock()
 
