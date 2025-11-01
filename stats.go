@@ -622,7 +622,7 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 			continue
 		}
 
-		// Map to track incidents and their resolutions
+		// Track incidents and their resolutions
 		type ProblemEvent struct {
 			Timestamp   time.Time
 			EventType   string
@@ -633,7 +633,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 			Duration    time.Duration
 		}
 		
-		problemEvents := make(map[string]*ProblemEvent) // key: event type
+		problemEvents := make([]*ProblemEvent, 0) // Use slice to keep ALL incidents
+		currentProblems := make(map[string]int) // Track index of unresolved problems by type
 
 		// Go through recent events to find problems and resolutions
 		for _, event := range stats.RecentEvents {
@@ -656,7 +657,7 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 					description = fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
 				}
 
-				problemEvents[event.EventType] = &ProblemEvent{
+				problem := &ProblemEvent{
 					Timestamp:   event.Timestamp,
 					EventType:   event.EventType,
 					Value:       event.Value,
@@ -665,20 +666,31 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 					Resolved:    false,
 					Duration:    0,
 				}
+				problemEvents = append(problemEvents, problem)
+				currentProblems[event.EventType] = len(problemEvents) - 1 // Track index of this problem
 			}
 
-			// Check if it's a recovery event
-			if event.EventType == "up" && problemEvents["down"] != nil && !problemEvents["down"].Resolved {
-				problemEvents["down"].Resolved = true
-				problemEvents["down"].Duration = event.Duration
+			// Check if it's a recovery event and mark the corresponding problem as resolved
+			if event.EventType == "up" {
+				if idx, exists := currentProblems["down"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "down") // Remove from tracking
+				}
 			}
-			if event.EventType == "latency_normal" && problemEvents["high_latency"] != nil && !problemEvents["high_latency"].Resolved {
-				problemEvents["high_latency"].Resolved = true
-				problemEvents["high_latency"].Duration = event.Duration
+			if event.EventType == "latency_normal" {
+				if idx, exists := currentProblems["high_latency"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "high_latency") // Remove from tracking
+				}
 			}
-			if event.EventType == "packet_loss_normal" && problemEvents["packet_loss"] != nil && !problemEvents["packet_loss"].Resolved {
-				problemEvents["packet_loss"].Resolved = true
-				problemEvents["packet_loss"].Duration = event.Duration
+			if event.EventType == "packet_loss_normal" {
+				if idx, exists := currentProblems["packet_loss"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "packet_loss") // Remove from tracking
+				}
 			}
 		}
 
