@@ -142,7 +142,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	
-	uptime := time.Since(pm.statsStartTime)
+	uptime := time.Since(pm.serviceStartTime) // Use serviceStartTime for actual uptime
 	schedule := fmt.Sprintf("%s at %s", strings.Title(pm.config.SummaryReportSchedule), pm.config.SummaryReportTime)
 	
 	// Build targets list with status
