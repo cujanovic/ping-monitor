@@ -369,10 +369,12 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	
 	pm.mu.Lock()
 	pm.statsStartTime = time.Now()
+	// Reset stats counters but KEEP RecentEvents for web dashboard
 	for addr := range pm.targetStats {
+		oldEvents := pm.targetStats[addr].RecentEvents // Preserve events
 		pm.targetStats[addr] = &TargetStats{
 			MinLatency:   -1,
-			RecentEvents: make([]EventRecord, 0),
+			RecentEvents: oldEvents, // Keep the event history
 		}
 	}
 	pm.mu.Unlock()
