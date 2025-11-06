@@ -746,3 +746,155 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 
 	return result
 }
+
+// getIncidentsSummary calculates summary statistics for recent incidents
+func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{} {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	cutoffTime := time.Now().Add(-time.Duration(hoursBack) * time.Hour)
+	
+	totalIncidents := 0
+	resolvedCount := 0
+	downtimeCount := 0
+	highLatencyCount := 0
+	packetLossCount := 0
+	
+	var totalDuration float64
+	targetCounts := make(map[string]int)
+	
+	type ProblemEvent struct {
+		Timestamp   time.Time
+		EventType   string
+		Value       float64
+		Threshold   float64
+		Description string
+		Resolved    bool
+		Duration    time.Duration
+	}
+	
+	// Process all targets' events
+	for _, target := range pm.config.Targets {
+		stats, exists := pm.targetStats[target.TargetAddr]
+		if !exists {
+			continue
+		}
+
+		problemEvents := make([]*ProblemEvent, 0)
+		currentProblems := make(map[string]int)
+
+		for _, event := range stats.RecentEvents {
+			if event.Timestamp.Before(cutoffTime) {
+				continue
+			}
+
+			// Check if it's a problem event
+			if event.EventType == "down" || event.EventType == "high_latency" || event.EventType == "packet_loss" {
+				var description string
+				switch event.EventType {
+				case "down":
+					description = "Target went DOWN"
+				case "high_latency":
+					description = fmt.Sprintf("High latency: %.2fms (threshold: %.0fms)", event.Value, event.Threshold)
+				case "packet_loss":
+					description = fmt.Sprintf("Packet loss: %.0f%% (threshold: %.0f%%)", event.Value, event.Threshold)
+				}
+
+				problem := &ProblemEvent{
+					Timestamp:   event.Timestamp,
+					EventType:   event.EventType,
+					Value:       event.Value,
+					Threshold:   event.Threshold,
+					Description: description,
+					Resolved:    false,
+					Duration:    0,
+				}
+				problemEvents = append(problemEvents, problem)
+				currentProblems[event.EventType] = len(problemEvents) - 1
+			}
+
+			// Check if it's a recovery event
+			if event.EventType == "up" {
+				if idx, exists := currentProblems["down"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "down")
+				}
+			}
+			if event.EventType == "latency_normal" {
+				if idx, exists := currentProblems["high_latency"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "high_latency")
+				}
+			}
+			if event.EventType == "packet_loss_normal" {
+				if idx, exists := currentProblems["packet_loss"]; exists && !problemEvents[idx].Resolved {
+					problemEvents[idx].Resolved = true
+					problemEvents[idx].Duration = event.Duration
+					delete(currentProblems, "packet_loss")
+				}
+			}
+		}
+
+		// Count incidents by type and resolution status
+		for _, problem := range problemEvents {
+			totalIncidents++
+			targetCounts[target.Name]++
+			
+			if problem.Resolved {
+				resolvedCount++
+				totalDuration += problem.Duration.Seconds()
+			}
+			
+			switch problem.EventType {
+			case "down":
+				downtimeCount++
+			case "high_latency":
+				highLatencyCount++
+			case "packet_loss":
+				packetLossCount++
+			}
+		}
+	}
+
+	// Calculate average resolution time
+	avgResolution := "N/A"
+	if resolvedCount > 0 {
+		avgSeconds := totalDuration / float64(resolvedCount)
+		avgResolution = fmt.Sprintf("%.0fs", avgSeconds)
+	}
+
+	// Calculate resolution percentage
+	resolvedPercent := 0
+	if totalIncidents > 0 {
+		resolvedPercent = (resolvedCount * 100) / totalIncidents
+	}
+
+	// Get top 3 affected targets
+	type targetCount struct {
+		Name  string
+		Count int
+	}
+	topTargets := make([]targetCount, 0)
+	for name, count := range targetCounts {
+		topTargets = append(topTargets, targetCount{Name: name, Count: count})
+	}
+	sort.Slice(topTargets, func(i, j int) bool {
+		return topTargets[i].Count > topTargets[j].Count
+	})
+	if len(topTargets) > 3 {
+		topTargets = topTargets[:3]
+	}
+
+	return map[string]interface{}{
+		"TotalIncidents":    totalIncidents,
+		"ResolvedCount":     resolvedCount,
+		"ResolvedPercent":   resolvedPercent,
+		"DowntimeCount":     downtimeCount,
+		"HighLatencyCount":  highLatencyCount,
+		"PacketLossCount":   packetLossCount,
+		"AvgResolution":     avgResolution,
+		"TopTargets":        topTargets,
+	}
+}

@@ -173,15 +173,16 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	
 	// Get recent incidents
 	incidents := pm.getRecentIncidents()
+	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
 	
 	data := struct {
-		TargetCount     int
-		Uptime          string
-		Interval        int
-		Schedule        string
-		Timestamp       string
-		Targets         []TargetInfo
-		RecentIncidents []struct {
+		TargetCount      int
+		Uptime           string
+		Interval         int
+		Schedule         string
+		Timestamp        string
+		Targets          []TargetInfo
+		RecentIncidents  []struct {
 			TargetName    string
 			TargetAddress string
 			Timestamp     string
@@ -190,16 +191,18 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			IsResolved    bool
 			Duration      string
 		}
-		IncidentsHours int
+		IncidentsHours   int
+		IncidentsSummary map[string]interface{}
 	}{
-		TargetCount:     len(pm.config.Targets),
-		Uptime:          formatDuration(uptime),
-		Interval:        pm.config.PingIntervalSeconds,
-		Schedule:        schedule,
-		Timestamp:       pm.getReportTime().Format("2006-01-02 15:04:05"),
-		Targets:         targets,
-		RecentIncidents: incidents,
-		IncidentsHours:  pm.config.RecentIncidentsHours,
+		TargetCount:      len(pm.config.Targets),
+		Uptime:           formatDuration(uptime),
+		Interval:         pm.config.PingIntervalSeconds,
+		Schedule:         schedule,
+		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Targets:          targets,
+		RecentIncidents:  incidents,
+		IncidentsHours:   pm.config.RecentIncidentsHours,
+		IncidentsSummary: summary,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
