@@ -40,6 +40,8 @@ type PingMonitor struct {
 	statsCache         *StatsCache      // Cached statistics for HTTP
 	incidentsBuffer    *CircularBuffer  // Circular buffer for recent incidents
 	targetLocks        map[string]*TargetLock // Per-target locks
+	lastStateSave      time.Time        // Last time state was saved to disk
+	stateSavePending   bool             // Flag indicating state needs to be saved
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
 }
@@ -245,6 +247,56 @@ func (pm *PingMonitor) Start() {
 		log.Printf(msg)
 		pm.addLog(msg)
 		pm.loadLatestReport()
+	}
+
+	// Load previous state (incidents) if available
+	if pm.config.StateFilePath != "" {
+		if err := pm.loadState(); err != nil {
+			log.Printf("⚠️ Failed to load state: %v", err)
+			pm.addLog(fmt.Sprintf("Failed to load state: %v", err))
+		}
+	}
+
+	// Start event-driven state saver goroutine with throttling
+	// Only saves when incidents occur, but throttles to avoid excessive writes
+	if pm.config.StateFilePath != "" {
+		throttleSeconds := pm.config.StateSaveIntervalSeconds
+		if throttleSeconds <= 0 {
+			throttleSeconds = 5 // Default: max 1 save per 5 seconds
+		}
+		
+		go func() {
+			ticker := time.NewTicker(1 * time.Second) // Check every second
+			defer ticker.Stop()
+			
+			for range ticker.C {
+				pm.mu.Lock()
+				needsSave := pm.stateSavePending
+				
+				// Check throttle: only save if enough time has passed since last save
+				if needsSave {
+					timeSinceLastSave := time.Since(pm.lastStateSave).Seconds()
+					if timeSinceLastSave >= float64(throttleSeconds) {
+						pm.stateSavePending = false
+						pm.lastStateSave = time.Now()
+						pm.mu.Unlock()
+						
+						// Save state (outside lock to avoid blocking)
+						if err := pm.saveState(); err != nil {
+							log.Printf("⚠️ Failed to save state: %v", err)
+						}
+					} else {
+						pm.mu.Unlock()
+					}
+				} else {
+					pm.mu.Unlock()
+				}
+			}
+		}()
+		
+		log.Printf("💾 State persistence enabled: %s (event-driven, throttle: %ds)", 
+			pm.config.StateFilePath, throttleSeconds)
+		pm.addLog(fmt.Sprintf("State persistence enabled (event-driven): %s", pm.config.StateFilePath))
 	}
 
 	// Pre-resolve DNS targets in parallel for faster first cycle

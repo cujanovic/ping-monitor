@@ -68,13 +68,21 @@ if [ "$UPDATE_MODE" = true ]; then
     echo -e "${GREEN}✅ Service stopped${NC}"
 fi
 
-# Save existing config to temporary location if updating
+# Save existing config and state to temporary location if updating
 TEMP_CONFIG=""
+TEMP_STATE=""
 if [ "$UPDATE_MODE" = true ] && [ -f "$INSTALL_DIR/config.json" ]; then
     echo -e "${YELLOW}💾 Preserving existing configuration...${NC}"
     TEMP_CONFIG=$(mktemp)
     cp "$INSTALL_DIR/config.json" "$TEMP_CONFIG"
     echo -e "${GREEN}✅ Configuration preserved${NC}"
+fi
+
+if [ "$UPDATE_MODE" = true ] && [ -f "$INSTALL_DIR/state.json" ]; then
+    echo -e "${YELLOW}💾 Preserving state file (incident history)...${NC}"
+    TEMP_STATE=$(mktemp)
+    cp "$INSTALL_DIR/state.json" "$TEMP_STATE"
+    echo -e "${GREEN}✅ State file preserved${NC}"
 fi
 
 # Create installation directory
@@ -101,6 +109,14 @@ if [ "$UPDATE_MODE" = true ] && [ -n "$TEMP_CONFIG" ] && [ -f "$TEMP_CONFIG" ]; 
     cp "$TEMP_CONFIG" "$INSTALL_DIR/config.json"
     rm -f "$TEMP_CONFIG"
     echo -e "${GREEN}✅ Existing configuration restored${NC}"
+fi
+
+# Restore existing state file if this was an update
+if [ "$UPDATE_MODE" = true ] && [ -n "$TEMP_STATE" ] && [ -f "$TEMP_STATE" ]; then
+    cp "$TEMP_STATE" "$INSTALL_DIR/state.json"
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/state.json"
+    rm -f "$TEMP_STATE"
+    echo -e "${GREEN}✅ State file (incident history) restored${NC}"
 fi
 
 # Create one-time backup of original config for fresh installs only

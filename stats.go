@@ -81,6 +81,10 @@ func (pm *PingMonitor) recordEvent(target Target, eventType string, value float6
 	if len(stats.RecentEvents) > maxEvents {
 		stats.RecentEvents = stats.RecentEvents[len(stats.RecentEvents)-maxEvents:]
 	}
+
+	// Mark state as dirty so it gets saved to disk
+	// This triggers event-driven state persistence
+	pm.stateSavePending = true
 }
 
 // addLog adds a log entry to the pending buffer

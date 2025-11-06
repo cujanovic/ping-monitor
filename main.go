@@ -30,6 +30,20 @@ func main() {
 		log.Fatalf("❌ Failed to load configuration: %v", err)
 	}
 
+	// Set defaults for optional fields
+	if config.StateFilePath == "" {
+		config.StateFilePath = "./state.json"
+	}
+	if config.StateSaveIntervalSeconds <= 0 {
+		config.StateSaveIntervalSeconds = 5 // Default throttle: max 1 save per 5 seconds
+	}
+	if config.RecentEventsBufferSize <= 0 {
+		config.RecentEventsBufferSize = 1000
+	}
+	if config.DNSCacheTTLMinutes <= 0 {
+		config.DNSCacheTTLMinutes = 60
+	}
+
 	// Validate configuration
 	if err := ValidateConfig(config); err != nil {
 		log.Fatalf("❌ %v", err)
@@ -47,6 +61,17 @@ func main() {
 	go func() {
 		<-sigChan
 		log.Printf("👋 Shutting down gracefully...")
+		
+		// Save state one last time before shutdown
+		if config.StateFilePath != "" {
+			log.Printf("💾 Saving final state before shutdown...")
+			if err := monitor.saveState(); err != nil {
+				log.Printf("⚠️ Failed to save final state: %v", err)
+			} else {
+				log.Printf("✅ Final state saved successfully")
+			}
+		}
+		
 		os.Exit(0)
 	}()
 

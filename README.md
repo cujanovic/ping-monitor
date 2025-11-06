@@ -20,6 +20,7 @@ A Go-based service that monitors IP addresses and sends email notifications when
 - **Comprehensive Logging**: Detailed logging with statistics and error recovery
 - **HTTP Dashboard**: Web interface for viewing reports and current status
 - **Authentication System**: Secure Argon2id password authentication with session management (optional)
+- **State Persistence**: Incidents are saved to disk and survive service restarts/updates
 - **DNS Caching**: Smart caching for DDNS targets with automatic IP change detection (reduces DNS queries by 90%)
 
 ## Email Service: Brevo (Recommended)
@@ -311,6 +312,8 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **log_buffer_flush_seconds**: Log buffer flush interval in seconds (default: 5)
 - **recent_incidents_hours**: How many hours of recent incidents to show in reports (default: 24)
 - **recent_events_buffer_size**: Maximum number of recent events to keep per target (default: 500, increase for high-frequency incidents)
+- **state_file_path**: Path to state file for persisting incidents across restarts (default: "./state.json", set to "" to disable)
+- **state_save_throttle_seconds**: Minimum seconds between state saves - event-driven with throttle (default: 5)
 - **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
 - **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW, install script auto-configures systemd)
 
@@ -572,6 +575,45 @@ Intelligent DNS caching reduces DNS queries by **90%** while maintaining full DD
 - 10-15 minutes - Maximum performance for rarely-changing IPs
 
 **Example:** With 2 DDNS targets updating every 30 seconds, DNS caching reduces queries from 240/hour to 24/hour (90% reduction) while detecting IP changes within 5 minutes.
+
+### State Persistence
+
+The service automatically saves incident history to disk using an **event-driven push-to-file approach**, ensuring incidents are preserved across service restarts, updates, or system reboots.
+
+**How It Works (Event-Driven):**
+- 🎯 **Push on Incident**: State is saved automatically when an incident occurs (down, high latency, packet loss)
+- ⏱️ **Smart Throttling**: Saves are throttled (default: max 1 save per 5 seconds) to avoid excessive disk writes
+- 📥 **Auto-Load**: State is loaded automatically on service startup
+- 🧹 **Auto-Cleanup**: Old incidents (beyond `recent_incidents_hours`) are automatically removed
+- 💾 **Graceful Shutdown**: Final state is saved on shutdown (SIGTERM/SIGINT)
+
+**Benefits:**
+- ✅ **Immediate Persistence**: Incidents saved within seconds of occurring (not waiting for timer)
+- ✅ **Survives Restarts**: Web dashboard shows continuous incident history even after updates
+- ✅ **Survives Updates**: No data loss during `install.sh` execution
+- ✅ **Efficient**: Only writes when incidents occur (not periodic empty writes)
+- ✅ **Throttled**: Prevents excessive disk I/O during incident bursts
+- ✅ **Atomic Writes**: Uses temporary file + rename for safe writes (no corruption)
+
+**Configuration:**
+```json
+{
+  "state_file_path": "./state.json",           // Path to state file ("" to disable)
+  "state_save_throttle_seconds": 5,           // Min seconds between saves (default: 5s)
+  "recent_incidents_hours": 48                // How long to keep incidents
+}
+```
+
+**Example Behavior:**
+- Target goes down at 10:00:00 → State saved at 10:00:05 (within throttle window)
+- 10 more incidents occur within 3 seconds → All batched, state saved at 10:00:10
+- No incidents for 1 hour → No disk writes (efficient!)
+- Service restart → All incidents restored from `state.json`
+
+**File Location:**
+- Default: `/opt/ping-monitor/state.json` (when installed)
+- Removed automatically by `uninstall.sh`
+- Survives service restarts and updates
 
 ### Additional Performance Optimizations
 The service includes several low-overhead optimizations for maximum efficiency:

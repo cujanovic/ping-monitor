@@ -30,6 +30,8 @@ type Config struct {
 	LogBufferFlushSeconds      int      `json:"log_buffer_flush_seconds"`
 	RecentIncidentsHours       int      `json:"recent_incidents_hours"`
 	RecentEventsBufferSize     int      `json:"recent_events_buffer_size"`
+	StateFilePath              string   `json:"state_file_path"`
+	StateSaveIntervalSeconds   int      `json:"state_save_throttle_seconds"` // Throttle between saves (event-driven)
 	DNSCacheTTLMinutes         int      `json:"dns_cache_ttl_minutes"`
 	UseRawSockets              bool     `json:"use_raw_sockets"`
 	AuthEnabled                bool     `json:"auth_enabled"`
