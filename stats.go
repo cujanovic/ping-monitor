@@ -765,7 +765,6 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	packetLossCount := 0
 	
 	var totalDuration float64
-	targetCounts := make(map[string]int)
 	
 	type ProblemEvent struct {
 		Timestamp   time.Time
@@ -776,6 +775,16 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		Resolved    bool
 		Duration    time.Duration
 	}
+	
+	type TargetBreakdown struct {
+		Name             string
+		TotalCount       int
+		DownCount        int
+		HighLatencyCount int
+		PacketLossCount  int
+	}
+	
+	targetBreakdowns := make(map[string]*TargetBreakdown)
 	
 	// Process all targets' events
 	for _, target := range pm.config.Targets {
@@ -844,7 +853,16 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		// Count incidents by type and resolution status
 		for _, problem := range problemEvents {
 			totalIncidents++
-			targetCounts[target.Name]++
+			
+			// Initialize target breakdown if not exists
+			if targetBreakdowns[target.Name] == nil {
+				targetBreakdowns[target.Name] = &TargetBreakdown{
+					Name: target.Name,
+				}
+			}
+			
+			// Update target breakdown counts
+			targetBreakdowns[target.Name].TotalCount++
 			
 			if problem.Resolved {
 				resolvedCount++
@@ -854,10 +872,13 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 			switch problem.EventType {
 			case "down":
 				downtimeCount++
+				targetBreakdowns[target.Name].DownCount++
 			case "high_latency":
 				highLatencyCount++
+				targetBreakdowns[target.Name].HighLatencyCount++
 			case "packet_loss":
 				packetLossCount++
+				targetBreakdowns[target.Name].PacketLossCount++
 			}
 		}
 	}
@@ -875,17 +896,13 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		resolvedPercent = (resolvedCount * 100) / totalIncidents
 	}
 
-	// Get top 3 affected targets
-	type targetCount struct {
-		Name  string
-		Count int
-	}
-	topTargets := make([]targetCount, 0)
-	for name, count := range targetCounts {
-		topTargets = append(topTargets, targetCount{Name: name, Count: count})
+	// Get top 3 affected targets with detailed breakdown
+	topTargets := make([]*TargetBreakdown, 0)
+	for _, breakdown := range targetBreakdowns {
+		topTargets = append(topTargets, breakdown)
 	}
 	sort.Slice(topTargets, func(i, j int) bool {
-		return topTargets[i].Count > topTargets[j].Count
+		return topTargets[i].TotalCount > topTargets[j].TotalCount
 	})
 	if len(topTargets) > 3 {
 		topTargets = topTargets[:3]
