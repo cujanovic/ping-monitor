@@ -345,15 +345,17 @@
 				Top Affected Targets:
 				<div style="margin-top: 4px; padding-left: 10px;">
 				{{range $topTargets}}
-					{{if ge .TotalCount 80}}<span style="color: #f44336;">🔴</span>
-					{{else if ge .TotalCount 40}}<span style="color: #FF9800;">🟠</span>
-					{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
-					{{else}}<span style="color: #4CAF50;">🟢</span>
-					{{end}}
-					<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span>
-					<span style="color: #777; font-size: 11px;">
-						({{if gt .DownCount 0}}<span style="color: #f44336;">🔴 {{.DownCount}} down</span>{{if or (gt .HighLatencyCount 0) (gt .PacketLossCount 0)}}, {{end}}{{end}}{{if gt .HighLatencyCount 0}}<span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span>{{if gt .PacketLossCount 0}}, {{end}}{{end}}{{if gt .PacketLossCount 0}}<span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span>{{end}})
-					</span><br/>
+					<div style="margin-bottom: 6px;">
+						{{if ge .TotalCount 80}}<span style="color: #f44336;">🔴</span>
+						{{else if ge .TotalCount 40}}<span style="color: #FF9800;">🟠</span>
+						{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
+						{{else}}<span style="color: #4CAF50;">🟢</span>
+						{{end}}
+						<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span>
+						<div style="color: #777; font-size: 11px; padding-left: 20px; margin-top: 2px;">
+							({{if gt .DownCount 0}}<span style="color: #f44336;">🔴 {{.DownCount}} down</span>{{if or (gt .HighLatencyCount 0) (gt .PacketLossCount 0)}}, {{end}}{{end}}{{if gt .HighLatencyCount 0}}<span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span>{{if gt .PacketLossCount 0}}, {{end}}{{end}}{{if gt .PacketLossCount 0}}<span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span>{{end}})
+						</div>
+					</div>
 				{{end}}
 				</div>
 			</div>
