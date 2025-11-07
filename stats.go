@@ -896,7 +896,7 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		resolvedPercent = (resolvedCount * 100) / totalIncidents
 	}
 
-	// Get top 3 affected targets with detailed breakdown
+	// Get all affected targets sorted by incident count (most affected first)
 	topTargets := make([]*TargetBreakdown, 0)
 	for _, breakdown := range targetBreakdowns {
 		topTargets = append(topTargets, breakdown)
@@ -904,9 +904,6 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	sort.Slice(topTargets, func(i, j int) bool {
 		return topTargets[i].TotalCount > topTargets[j].TotalCount
 	})
-	if len(topTargets) > 3 {
-		topTargets = topTargets[:3]
-	}
 
 	return map[string]interface{}{
 		"TotalIncidents":    totalIncidents,
