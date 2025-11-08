@@ -93,5 +93,22 @@ window.addEventListener('DOMContentLoaded', function() {
 		if (totalCountEl) totalCountEl.textContent = totalCount;
 		if (matchCountEl) matchCountEl.textContent = totalCount;
 	}
+	
+	// Attach search input event listeners
+	const searchInput = document.getElementById('incidentSearch');
+	if (searchInput) {
+		// Keyup event for filtering
+		searchInput.addEventListener('keyup', filterIncidents);
+		
+		// Focus event - change border color
+		searchInput.addEventListener('focus', function() {
+			this.style.borderColor = '#667eea';
+		});
+		
+		// Blur event - restore border color
+		searchInput.addEventListener('blur', function() {
+			this.style.borderColor = '#444';
+		});
+	}
 });
 
