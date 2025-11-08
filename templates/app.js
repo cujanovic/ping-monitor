@@ -25,9 +25,9 @@ function filterIncidents() {
 	let visibleCount = 0;
 	
 	incidents.forEach(function(incident) {
-		const searchText = incident.getAttribute('data-search-text');
-		if (!searchText) return;
-		
+		// Use textContent instead of data attribute to avoid XSS concerns
+		// This searches the visible text only (target name, description, timestamp, status)
+		const searchText = incident.textContent || incident.innerText || '';
 		const searchTextLower = searchText.toLowerCase();
 		
 		if (filter === '' || searchTextLower.includes(filter)) {
@@ -60,12 +60,20 @@ function filterIncidents() {
 			noResultsMsg = document.createElement('div');
 			noResultsMsg.id = 'noResultsMsg';
 			noResultsMsg.style.cssText = 'padding: 30px; text-align: center; color: #999; font-size: 14px;';
-			noResultsMsg.innerHTML = '🔍 No incidents found matching "<span style="color: #667eea;">' + filter + '</span>"';
 			if (incidentsList) incidentsList.appendChild(noResultsMsg);
-		} else {
-			noResultsMsg.innerHTML = '🔍 No incidents found matching "<span style="color: #667eea;">' + filter + '</span>"';
-			noResultsMsg.style.display = 'block';
 		}
+		
+		// Safely construct the message without innerHTML to prevent XSS
+		noResultsMsg.textContent = '';
+		noResultsMsg.appendChild(document.createTextNode('🔍 No incidents found matching "'));
+		
+		const filterSpan = document.createElement('span');
+		filterSpan.style.color = '#667eea';
+		filterSpan.textContent = filter; // Safe: uses textContent instead of innerHTML
+		noResultsMsg.appendChild(filterSpan);
+		
+		noResultsMsg.appendChild(document.createTextNode('"'));
+		noResultsMsg.style.display = 'block';
 	} else if (noResultsMsg) {
 		noResultsMsg.style.display = 'none';
 	}

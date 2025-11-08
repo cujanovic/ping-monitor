@@ -375,8 +375,7 @@
 		
 		<div class="targets-list" id="incidentsList" style="max-height: 250px;">
 			{{range .RecentIncidents}}
-				<div class="target-item-home incident-item" style="background: #2a1a1a; border-left: 3px solid #f44336; padding-left: 12px;" 
-					data-search-text="{{.TargetName}} {{.Description}} {{.Timestamp}} {{if .IsResolved}}resolved{{else}}ongoing{{end}}">
+				<div class="target-item-home incident-item" style="background: #2a1a1a; border-left: 3px solid #f44336; padding-left: 12px;">
 					<div class="target-info" style="width: 100%;">
 						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.TargetAddress}}" target="_blank" class="target-link" style="color: #f48fb1;">{{.TargetName}}</a></strong>
 						<span style="color: #999; font-size: 11px; display: block; margin-bottom: 3px;">{{.Timestamp}}</span>
