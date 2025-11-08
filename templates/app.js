@@ -17,15 +17,28 @@ function toggleReport(index) {
 // Filter incidents based on search input
 function filterIncidents() {
 	const searchInput = document.getElementById('incidentSearch');
+	if (!searchInput) {
+		console.error('Search input not found');
+		return;
+	}
+	
 	const filter = searchInput.value.toLowerCase().trim();
 	const incidents = document.querySelectorAll('.incident-item');
 	const countDiv = document.getElementById('incidentCount');
 	let visibleCount = 0;
 	
+	console.log('Filtering with:', filter, 'Found incidents:', incidents.length);
+	
 	incidents.forEach(function(incident) {
-		const searchText = incident.getAttribute('data-search-text').toLowerCase();
+		const searchText = incident.getAttribute('data-search-text');
+		if (!searchText) {
+			console.warn('Incident missing data-search-text attribute');
+			return;
+		}
 		
-		if (filter === '' || searchText.includes(filter)) {
+		const searchTextLower = searchText.toLowerCase();
+		
+		if (filter === '' || searchTextLower.includes(filter)) {
 			incident.style.display = '';
 			visibleCount++;
 		} else {
@@ -33,14 +46,19 @@ function filterIncidents() {
 		}
 	});
 	
+	console.log('Visible count:', visibleCount);
+	
 	// Update counter
-	document.getElementById('matchCount').textContent = visibleCount;
+	const matchCountEl = document.getElementById('matchCount');
+	if (matchCountEl) matchCountEl.textContent = visibleCount;
 	
 	// Show/hide counter based on search activity
-	if (filter === '') {
-		countDiv.style.display = 'none';
-	} else {
-		countDiv.style.display = 'block';
+	if (countDiv) {
+		if (filter === '') {
+			countDiv.style.display = 'none';
+		} else {
+			countDiv.style.display = 'block';
+		}
 	}
 	
 	// Show "no results" message if needed
@@ -53,7 +71,7 @@ function filterIncidents() {
 			noResultsMsg.id = 'noResultsMsg';
 			noResultsMsg.style.cssText = 'padding: 30px; text-align: center; color: #999; font-size: 14px;';
 			noResultsMsg.innerHTML = '🔍 No incidents found matching "<span style="color: #667eea;">' + filter + '</span>"';
-			incidentsList.appendChild(noResultsMsg);
+			if (incidentsList) incidentsList.appendChild(noResultsMsg);
 		} else {
 			noResultsMsg.innerHTML = '🔍 No incidents found matching "<span style="color: #667eea;">' + filter + '</span>"';
 			noResultsMsg.style.display = 'block';
@@ -97,8 +115,13 @@ window.addEventListener('DOMContentLoaded', function() {
 	// Attach search input event listeners
 	const searchInput = document.getElementById('incidentSearch');
 	if (searchInput) {
+		console.log('Attaching search event listeners');
+		
 		// Keyup event for filtering
-		searchInput.addEventListener('keyup', filterIncidents);
+		searchInput.addEventListener('keyup', function() {
+			console.log('Keyup event triggered');
+			filterIncidents();
+		});
 		
 		// Focus event - change border color
 		searchInput.addEventListener('focus', function() {
@@ -109,6 +132,10 @@ window.addEventListener('DOMContentLoaded', function() {
 		searchInput.addEventListener('blur', function() {
 			this.style.borderColor = '#444';
 		});
+		
+		console.log('Search event listeners attached successfully');
+	} else {
+		console.error('Search input element not found during initialization');
 	}
 });
 
