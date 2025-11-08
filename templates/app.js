@@ -17,24 +17,16 @@ function toggleReport(index) {
 // Filter incidents based on search input
 function filterIncidents() {
 	const searchInput = document.getElementById('incidentSearch');
-	if (!searchInput) {
-		console.error('Search input not found');
-		return;
-	}
+	if (!searchInput) return;
 	
 	const filter = searchInput.value.toLowerCase().trim();
 	const incidents = document.querySelectorAll('.incident-item');
 	const countDiv = document.getElementById('incidentCount');
 	let visibleCount = 0;
 	
-	console.log('Filtering with:', filter, 'Found incidents:', incidents.length);
-	
 	incidents.forEach(function(incident) {
 		const searchText = incident.getAttribute('data-search-text');
-		if (!searchText) {
-			console.warn('Incident missing data-search-text attribute');
-			return;
-		}
+		if (!searchText) return;
 		
 		const searchTextLower = searchText.toLowerCase();
 		
@@ -45,8 +37,6 @@ function filterIncidents() {
 			incident.style.display = 'none';
 		}
 	});
-	
-	console.log('Visible count:', visibleCount);
 	
 	// Update counter
 	const matchCountEl = document.getElementById('matchCount');
@@ -115,13 +105,8 @@ window.addEventListener('DOMContentLoaded', function() {
 	// Attach search input event listeners
 	const searchInput = document.getElementById('incidentSearch');
 	if (searchInput) {
-		console.log('Attaching search event listeners');
-		
 		// Keyup event for filtering
-		searchInput.addEventListener('keyup', function() {
-			console.log('Keyup event triggered');
-			filterIncidents();
-		});
+		searchInput.addEventListener('keyup', filterIncidents);
 		
 		// Focus event - change border color
 		searchInput.addEventListener('focus', function() {
@@ -132,10 +117,6 @@ window.addEventListener('DOMContentLoaded', function() {
 		searchInput.addEventListener('blur', function() {
 			this.style.borderColor = '#444';
 		});
-		
-		console.log('Search event listeners attached successfully');
-	} else {
-		console.error('Search input element not found during initialization');
 	}
 });
 

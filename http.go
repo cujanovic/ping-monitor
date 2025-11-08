@@ -95,11 +95,10 @@ func getClientIP(r *http.Request) string {
 // securityHeadersMiddleware adds security headers to responses
 func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Content Security Policy - allow scripts, styles, and images from same origin
+		// Content Security Policy - allow scripts from same origin
 		w.Header().Set("Content-Security-Policy", 
 			"default-src 'self'; "+
 			"script-src 'self'; "+
-			"script-src-elem 'self'; "+
 			"style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data:; "+
 			"font-src 'self'; "+
