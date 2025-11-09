@@ -33,6 +33,7 @@ type Config struct {
 	StateFilePath              string   `json:"state_file_path"`
 	StateSaveIntervalSeconds   int      `json:"state_save_throttle_seconds"` // Throttle between saves (event-driven)
 	DNSCacheTTLMinutes         int      `json:"dns_cache_ttl_minutes"`
+	StaggerWindowSeconds       int      `json:"stagger_window_seconds"`
 	UseRawSockets              bool     `json:"use_raw_sockets"`
 	AuthEnabled                bool     `json:"auth_enabled"`
 	PasswordHash               string   `json:"password_hash"`
@@ -118,6 +119,12 @@ func ValidateConfig(config Config) error {
 	}
 	if config.DefaultTimeoutSeconds < 1 || config.DefaultTimeoutSeconds > 60 {
 		errors = append(errors, "default_timeout_seconds must be between 1 and 60")
+	}
+	if config.StaggerWindowSeconds < 0 {
+		errors = append(errors, "stagger_window_seconds cannot be negative")
+	}
+	if config.StaggerWindowSeconds > config.PingIntervalSeconds {
+		errors = append(errors, "stagger_window_seconds should not exceed ping_interval_seconds")
 	}
 
 	// Validate email config

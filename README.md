@@ -104,6 +104,7 @@ Edit `config.json` to add your monitoring targets:
   "recent_incidents_hours": 24,
   "recent_events_buffer_size": 500,
   "dns_cache_ttl_minutes": 5,
+  "stagger_window_seconds": 20,
   "use_raw_sockets": false,
   "auth_enabled": false,
   "password_hash": "",
@@ -315,6 +316,7 @@ See **[AUTHENTICATION.md](AUTHENTICATION.md)**
 - **state_file_path**: Path to state file for persisting incidents across restarts (default: "./state.json", set to "" to disable)
 - **state_save_throttle_seconds**: Minimum seconds between state saves - event-driven with throttle (default: 5)
 - **dns_cache_ttl_minutes**: DNS cache TTL for DDNS targets in minutes (default: 5, reduces DNS queries)
+- **stagger_window_seconds**: Time window to distribute pings across (default: 20, all targets pinged within this window, then repeat at interval)
 - **use_raw_sockets**: Enable raw socket ICMP for 10-20ms faster pings (default: false, requires CAP_NET_RAW, install script auto-configures systemd)
 
 #### Authentication Configuration (Optional)
@@ -575,6 +577,47 @@ Intelligent DNS caching reduces DNS queries by **90%** while maintaining full DD
 - 10-15 minutes - Maximum performance for rarely-changing IPs
 
 **Example:** With 2 DDNS targets updating every 30 seconds, DNS caching reduces queries from 240/hour to 24/hour (90% reduction) while detecting IP changes within 5 minutes.
+
+### Configurable Ping Stagger Window
+
+The service distributes pings across a configurable time window to prevent network bursts and improve monitoring accuracy:
+
+**How it works:**
+- All targets are pinged within the stagger window (default: 20 seconds)
+- Targets shuffled randomly at startup for unpredictable order
+- Each target delayed evenly: `stagger_window / num_targets`
+- After window completes, all targets repeat at their configured interval
+
+**Example with 10 targets, 20s stagger, 60s interval:**
+```
+Target 1: 0s  → 60s  → 120s → ...
+Target 2: 2s  → 62s  → 122s → ...
+Target 3: 4s  → 64s  → 124s → ...
+...
+Target 10: 18s → 78s → 138s → ...
+```
+
+**Configuration:**
+```json
+{
+  "stagger_window_seconds": 20,  // All pings within 20s window
+  "ping_interval_seconds": 60    // Repeat every 60s
+}
+```
+
+**Benefits:**
+- ✅ **Prevents network bursts** - spreads load over time
+- ✅ **Better incident detection** - brief network hiccups won't trigger all targets
+- ✅ **Works with any interval** - 300s interval still only uses 20s window
+- ✅ **Independent control** - stagger separate from check frequency
+- ✅ **Smoother resource usage** - CPU, memory, and network usage more consistent
+
+**Recommended values:**
+- **20 seconds** (default) - Good balance for most deployments
+- 10 seconds - Faster response time, tighter burst window
+- 30-60 seconds - Very large deployments (50+ targets)
+
+**Note:** Stagger window should not exceed ping interval (validated at startup).
 
 ### State Persistence
 

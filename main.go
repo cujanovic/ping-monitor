@@ -21,7 +21,7 @@ func main() {
 		handlePasswordGeneration()
 		return
 	}
-	
+
 	log.Printf("🎯 Ping Monitor Service Starting...")
 	
 	// Load configuration
@@ -42,6 +42,9 @@ func main() {
 	}
 	if config.DNSCacheTTLMinutes <= 0 {
 		config.DNSCacheTTLMinutes = 60
+	}
+	if config.StaggerWindowSeconds <= 0 {
+		config.StaggerWindowSeconds = 20 // Default: distribute pings over 20 seconds
 	}
 
 	// Validate configuration

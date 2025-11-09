@@ -23,6 +23,7 @@
   "state_file_path": "./state.json",
   "state_save_throttle_seconds": 5,
   "dns_cache_ttl_minutes": 5,
+  "stagger_window_seconds": 20,
   "use_raw_sockets": false,
   "auth_enabled": false,
   "password_hash": "",

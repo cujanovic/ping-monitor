@@ -312,12 +312,23 @@ func (pm *PingMonitor) Start() {
 	log.Printf("🔀 Targets shuffled for randomized monitoring order")
 	pm.addLog("🔀 Targets shuffled for randomized monitoring order")
 
-	// Calculate delay between checks
+	// Calculate delay between checks using configurable stagger window
 	intervalSeconds := time.Duration(pm.config.PingIntervalSeconds) * time.Second
-	delayBetweenTargets := intervalSeconds / time.Duration(numTargets)
-
-	log.Printf("📊 Distributing pings with %v delay between targets", delayBetweenTargets)
-	pm.addLog("📊 Distributing pings with delay between targets")
+	
+	// Use stagger window if configured, otherwise fall back to old behavior
+	var delayBetweenTargets time.Duration
+	if pm.config.StaggerWindowSeconds > 0 {
+		staggerWindow := time.Duration(pm.config.StaggerWindowSeconds) * time.Second
+		delayBetweenTargets = staggerWindow / time.Duration(numTargets)
+		log.Printf("📊 Distributing pings over %v window (%v delay between targets)", 
+			staggerWindow, delayBetweenTargets)
+		pm.addLog(fmt.Sprintf("📊 Distributing pings over %ds window", pm.config.StaggerWindowSeconds))
+	} else {
+		// Fallback: spread evenly across entire interval
+		delayBetweenTargets = intervalSeconds / time.Duration(numTargets)
+		log.Printf("📊 Distributing pings across full interval (%v delay between targets)", delayBetweenTargets)
+		pm.addLog("📊 Distributing pings across full interval")
+	}
 
 	// Start monitoring goroutines
 	for i, target := range targets {
