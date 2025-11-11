@@ -782,14 +782,20 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	}
 	
 	type TargetBreakdown struct {
-		Name             string
-		TotalCount       int
-		DownCount        int
-		HighLatencyCount int
-		PacketLossCount  int
-		ResolvedCount    int
-		TotalDuration    float64 // in seconds
-		AvgResolution    string
+		Name                     string
+		TotalCount               int
+		DownCount                int
+		HighLatencyCount         int
+		PacketLossCount          int
+		ResolvedCount            int
+		TotalDuration            float64 // in seconds
+		AvgResolution            string
+		DownDurations            []float64 // durations for down incidents
+		HighLatencyDurations     []float64 // durations for high latency incidents
+		PacketLossDurations      []float64 // durations for packet loss incidents
+		AvgDownResolution        string
+		AvgHighLatencyResolution string
+		AvgPacketLossResolution  string
 	}
 	
 	targetBreakdowns := make(map[string]*TargetBreakdown)
@@ -865,7 +871,10 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 			// Initialize target breakdown if not exists
 			if targetBreakdowns[target.Name] == nil {
 				targetBreakdowns[target.Name] = &TargetBreakdown{
-					Name: target.Name,
+					Name:                 target.Name,
+					DownDurations:        make([]float64, 0),
+					HighLatencyDurations: make([]float64, 0),
+					PacketLossDurations:  make([]float64, 0),
 				}
 			}
 			
@@ -881,14 +890,17 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 				targetBreakdowns[target.Name].ResolvedCount++
 				targetBreakdowns[target.Name].TotalDuration += durationSeconds
 				
-				// Track per incident type
+				// Track per incident type globally
 				switch problem.EventType {
 				case "down":
 					downtimeDurations = append(downtimeDurations, durationSeconds)
+					targetBreakdowns[target.Name].DownDurations = append(targetBreakdowns[target.Name].DownDurations, durationSeconds)
 				case "high_latency":
 					highLatencyDurations = append(highLatencyDurations, durationSeconds)
+					targetBreakdowns[target.Name].HighLatencyDurations = append(targetBreakdowns[target.Name].HighLatencyDurations, durationSeconds)
 				case "packet_loss":
 					packetLossDurations = append(packetLossDurations, durationSeconds)
+					targetBreakdowns[target.Name].PacketLossDurations = append(targetBreakdowns[target.Name].PacketLossDurations, durationSeconds)
 				}
 			}
 			
@@ -922,13 +934,45 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	// Get all affected targets sorted by incident count (most affected first)
 	topTargets := make([]*TargetBreakdown, 0)
 	for _, breakdown := range targetBreakdowns {
-		// Calculate avg resolution time for this target
+		// Calculate avg resolution time for this target (overall)
 		if breakdown.ResolvedCount > 0 {
 			avgSeconds := breakdown.TotalDuration / float64(breakdown.ResolvedCount)
 			breakdown.AvgResolution = fmt.Sprintf("%.0fs", avgSeconds)
 		} else {
 			breakdown.AvgResolution = "N/A"
 		}
+		
+		// Calculate avg resolution time per incident type for this target
+		if len(breakdown.DownDurations) > 0 {
+			var sum float64
+			for _, d := range breakdown.DownDurations {
+				sum += d
+			}
+			breakdown.AvgDownResolution = fmt.Sprintf("%.0fs", sum/float64(len(breakdown.DownDurations)))
+		} else {
+			breakdown.AvgDownResolution = "N/A"
+		}
+		
+		if len(breakdown.HighLatencyDurations) > 0 {
+			var sum float64
+			for _, d := range breakdown.HighLatencyDurations {
+				sum += d
+			}
+			breakdown.AvgHighLatencyResolution = fmt.Sprintf("%.0fs", sum/float64(len(breakdown.HighLatencyDurations)))
+		} else {
+			breakdown.AvgHighLatencyResolution = "N/A"
+		}
+		
+		if len(breakdown.PacketLossDurations) > 0 {
+			var sum float64
+			for _, d := range breakdown.PacketLossDurations {
+				sum += d
+			}
+			breakdown.AvgPacketLossResolution = fmt.Sprintf("%.0fs", sum/float64(len(breakdown.PacketLossDurations)))
+		} else {
+			breakdown.AvgPacketLossResolution = "N/A"
+		}
+		
 		topTargets = append(topTargets, breakdown)
 	}
 	sort.Slice(topTargets, func(i, j int) bool {

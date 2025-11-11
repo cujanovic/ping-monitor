@@ -272,51 +272,11 @@
 				<line x1="16" y1="16" x2="26" y2="10" stroke="#4CAF50" stroke-width="1.5" opacity="0.8" stroke-linecap="round"/>
 			</svg>
 		</div>
-		<h1>Ping Monitor Service</h1>
-		<p class="subtitle">Network Monitoring & Alerting System</p>
-		
-		<div class="status-badge status-online">● Service Online</div>
-		
-		<div class="stats">
-			<div class="stat-row">
-				<span class="stat-label">Targets Monitored</span>
-				<span class="stat-value">{{.TargetCount}}</span>
-			</div>
-			<div class="stat-row">
-				<span class="stat-label">Service Uptime</span>
-				<span class="stat-value">{{.Uptime}}</span>
-			</div>
-			<div class="stat-row">
-				<span class="stat-label">Check Interval</span>
-				<span class="stat-value">{{.Interval}} seconds</span>
-			</div>
-			<div class="stat-row">
-				<span class="stat-label">Report Schedule</span>
-				<span class="stat-value">{{.Schedule}}</span>
-			</div>
-		</div>
-		
-		<div class="targets">
-			<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Monitored Targets</h2>
-			<div class="targets-list">
-				{{range .Targets}}
-				<div class="target-item-home">
-					<div class="target-info">
-						<strong style="display: block; overflow: hidden; text-overflow: ellipsis;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
-						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
-						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
-					</div>
-					<div class="target-status">
-						{{if .IsDown}}<span class="badge badge-down">DOWN</span>{{end}}
-						{{if .IsSlow}}<span class="badge badge-slow">HIGH LATENCY</span>{{end}}
-						{{if .HasPacketLoss}}<span class="badge badge-loss">PACKET LOSS</span>{{end}}
-						{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span class="badge badge-ok">OK</span>{{end}}
-					</div>
-				</div>
-				{{end}}
-			</div>
-		</div>
-		
+	<h1>Ping Monitor Service</h1>
+	<p class="subtitle">Network Monitoring & Alerting System</p>
+	
+	<div class="status-badge status-online">● Service Online</div>
+	
 	{{if .RecentIncidents}}
 	<div class="targets" style="margin-top: 30px;">
 		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Recent Incidents (Last {{.IncidentsHours}} hours)</h2>
@@ -345,15 +305,15 @@
 				Affected Targets (sorted by incident count):
 				<div style="margin-top: 4px; padding-left: 10px;">
 				{{range $topTargets}}
-					<div style="margin-bottom: 6px;">
+					<div style="margin-bottom: 8px;">
 						{{if ge .TotalCount 80}}<span style="color: #f44336;">🔴</span>
 						{{else if ge .TotalCount 40}}<span style="color: #FF9800;">🟠</span>
 						{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
 						{{else}}<span style="color: #4CAF50;">🟢</span>
 						{{end}}
 						<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span> | <span style="color: #569cd6;">Avg: {{.AvgResolution}}</span>
-						<div style="color: #777; font-size: 11px; padding-left: 20px; margin-top: 2px;">
-							({{if gt .DownCount 0}}<span style="color: #f44336;">🔴 {{.DownCount}} down</span>{{if or (gt .HighLatencyCount 0) (gt .PacketLossCount 0)}}, {{end}}{{end}}{{if gt .HighLatencyCount 0}}<span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span>{{if gt .PacketLossCount 0}}, {{end}}{{end}}{{if gt .PacketLossCount 0}}<span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span>{{end}})
+						<div style="color: #888; font-size: 11px; padding-left: 20px; margin-top: 3px; line-height: 1.5;">
+							{{if gt .DownCount 0}}<div style="margin-bottom: 2px;"><span style="color: #f44336;">🔴 {{.DownCount}} down</span> <span style="color: #777;">(avg: {{.AvgDownResolution}})</span></div>{{end}}{{if gt .HighLatencyCount 0}}<div style="margin-bottom: 2px;"><span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span> <span style="color: #777;">(avg: {{.AvgHighLatencyResolution}})</span></div>{{end}}{{if gt .PacketLossCount 0}}<div style="margin-bottom: 2px;"><span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span> <span style="color: #777;">(avg: {{.AvgPacketLossResolution}})</span></div>{{end}}
 						</div>
 					</div>
 				{{end}}
@@ -391,6 +351,46 @@
 			</div>
 		</div>
 		{{end}}
+	
+	<div class="stats">
+			<div class="stat-row">
+				<span class="stat-label">Targets Monitored</span>
+				<span class="stat-value">{{.TargetCount}}</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Service Uptime</span>
+				<span class="stat-value">{{.Uptime}}</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Check Interval</span>
+				<span class="stat-value">{{.Interval}} seconds</span>
+			</div>
+			<div class="stat-row">
+				<span class="stat-label">Report Schedule</span>
+				<span class="stat-value">{{.Schedule}}</span>
+			</div>
+		</div>
+		
+		<div class="targets">
+			<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Monitored Targets</h2>
+			<div class="targets-list">
+				{{range .Targets}}
+				<div class="target-item-home">
+					<div class="target-info">
+						<strong style="display: block; overflow: hidden; text-overflow: ellipsis;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
+						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
+						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
+					</div>
+					<div class="target-status">
+						{{if .IsDown}}<span class="badge badge-down">DOWN</span>{{end}}
+						{{if .IsSlow}}<span class="badge badge-slow">HIGH LATENCY</span>{{end}}
+						{{if .HasPacketLoss}}<span class="badge badge-loss">PACKET LOSS</span>{{end}}
+						{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span class="badge badge-ok">OK</span>{{end}}
+					</div>
+				</div>
+				{{end}}
+		</div>
+	</div>
 		
 	<div class="btn-container" style="margin-top: 30px;">
 		<a href="/reports" class="btn btn-primary">📊 View Reports</a>
