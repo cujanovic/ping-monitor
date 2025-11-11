@@ -189,6 +189,8 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			Description   string
 			IsResolved    bool
 			Duration      string
+			Value         float64
+			Threshold     float64
 		}
 		IncidentsHours   int
 		IncidentsSummary map[string]interface{}
@@ -352,6 +354,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			Description   string
 			IsResolved    bool
 			Duration      string
+			Value         float64
+			Threshold     float64
 		}
 		IncidentsHours   int
 		IncidentsSummary map[string]interface{}
@@ -489,6 +493,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			Description   string
 			IsResolved    bool
 			Duration      string
+			Value         float64
+			Threshold     float64
 		}
 		IncidentsHours   int
 		IncidentsSummary map[string]interface{}

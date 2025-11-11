@@ -294,11 +294,11 @@
 				 | Avg Resolution: <span style="color: #569cd6;">{{index .IncidentsSummary "AvgResolution"}}</span>
 			</div>
 			<div style="color: #aaa; margin-bottom: 8px; font-size: 12px;">
-				By Type: {{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">🔴 {{index .IncidentsSummary "DowntimeCount"}} Downtime</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgDowntimeResolution"}})</span>{{if or (gt (index .IncidentsSummary "HighLatencyCount") 0) (gt (index .IncidentsSummary "PacketLossCount") 0)}} • {{end}}{{end}}{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">⚠️ {{index .IncidentsSummary "HighLatencyCount"}} High Latency</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgHighLatencyResolution"}})</span>{{if gt (index .IncidentsSummary "PacketLossCount") 0}} • {{end}}{{end}}{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">📶 {{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgPacketLossResolution"}})</span>{{end}}
+				{{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">🔴 {{index .IncidentsSummary "DowntimeCount"}} Downtime</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgDowntimeResolution"}})</span>{{if or (gt (index .IncidentsSummary "HighLatencyCount") 0) (gt (index .IncidentsSummary "PacketLossCount") 0)}} • {{end}}{{end}}{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">⚠️ {{index .IncidentsSummary "HighLatencyCount"}} High Latency</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgHighLatencyResolution"}})</span>{{if gt (index .IncidentsSummary "PacketLossCount") 0}} • {{end}}{{end}}{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">📶 {{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgPacketLossResolution"}})</span>{{end}}
 			</div>
 			{{if index .IncidentsSummary "FirstIncident"}}
 			<div style="color: #999; font-size: 11px; margin-bottom: 4px;">
-				📅 First: <span style="color: #888;">{{index .IncidentsSummary "FirstIncident"}}</span>{{if index .IncidentsSummary "LastResolved"}} • Last resolved: <span style="color: #888;">{{index .IncidentsSummary "LastResolved"}}</span>{{end}}
+				📅 First: <span style="color: #888;">{{index .IncidentsSummary "FirstIncident"}}</span>{{if index .IncidentsSummary "LastResolved"}} • Last resolved: <span style="color: #888;">{{index .IncidentsSummary "LastResolved"}}</span>{{end}}{{if index .IncidentsSummary "TotalDuration"}} • <span style="color: #569cd6;">Total: {{index .IncidentsSummary "TotalDuration"}}</span>{{end}}
 			</div>
 			{{end}}
 			{{$topTargets := index .IncidentsSummary "TopTargets"}}
@@ -342,6 +342,8 @@
 						<strong style="display: block; margin-bottom: 4px;"><a href="http://{{.TargetAddress}}" target="_blank" class="target-link" style="color: #f48fb1;">{{.TargetName}}</a></strong>
 						<span style="color: #999; font-size: 11px; display: block; margin-bottom: 3px;">{{.Timestamp}}</span>
 						<span style="color: #ff8a80; font-size: 12px; display: block;">{{.Description}}</span>
+						{{if eq .EventType "high_latency"}}{{if gt .Value 0.0}}<span style="color: #888; font-size: 10px; display: block; margin-top: 2px;">Measured: {{printf "%.0f" .Value}}ms (threshold: {{printf "%.0f" .Threshold}}ms)</span>{{end}}{{end}}
+						{{if eq .EventType "packet_loss"}}{{if gt .Value 0.0}}<span style="color: #888; font-size: 10px; display: block; margin-top: 2px;">Measured: {{printf "%.0f" .Value}}% (threshold: {{printf "%.0f" .Threshold}}%)</span>{{end}}{{end}}
 						{{if .IsResolved}}
 						<span style="color: #4CAF50; font-size: 11px; display: block; margin-top: 4px;">✓ Resolved{{if .Duration}} ({{.Duration}}){{end}}</span>
 						{{else}}

@@ -603,6 +603,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 	Description   string
 	IsResolved    bool
 	Duration      string
+	Value         float64 // latency in ms or packet loss %
+	Threshold     float64
 } {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
@@ -616,6 +618,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		IsResolved    bool
 		Duration      string
 		Time          time.Time // For sorting
+		Value         float64   // latency in ms or packet loss %
+		Threshold     float64
 	}
 
 	incidents := make([]Incident, 0)
@@ -718,6 +722,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 				IsResolved:    problem.Resolved,
 				Duration:      durationStr,
 				Time:          problem.Timestamp,
+				Value:         problem.Value,
+				Threshold:     problem.Threshold,
 			})
 		}
 	}
@@ -736,6 +742,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		Description   string
 		IsResolved    bool
 		Duration      string
+		Value         float64
+		Threshold     float64
 	}, len(incidents))
 
 	for i, inc := range incidents {
@@ -746,6 +754,8 @@ func (pm *PingMonitor) getRecentIncidents() []struct {
 		result[i].Description = inc.Description
 		result[i].IsResolved = inc.IsResolved
 		result[i].Duration = inc.Duration
+		result[i].Value = inc.Value
+		result[i].Threshold = inc.Threshold
 	}
 
 	return result
@@ -1075,6 +1085,13 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	if !lastResolvedTime.IsZero() {
 		lastResolvedStr = lastResolvedTime.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour).Format("2006-01-02 15:04:05")
 	}
+	
+	// Calculate total duration between first incident and last resolved
+	totalDurationStr := ""
+	if !firstIncidentTime.IsZero() && !lastResolvedTime.IsZero() {
+		totalDur := lastResolvedTime.Sub(firstIncidentTime)
+		totalDurationStr = formatDuration(totalDur)
+	}
 
 	return map[string]interface{}{
 		"TotalIncidents":           totalIncidents,
@@ -1089,6 +1106,7 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		"AvgPacketLossResolution":  avgPacketLossResolution,
 		"FirstIncident":            firstIncidentStr,
 		"LastResolved":             lastResolvedStr,
+		"TotalDuration":            totalDurationStr,
 		"TopTargets":               topTargets,
 	}
 }
