@@ -817,6 +817,10 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		PacketLossValues         []float64 // packet loss percentages
 		MaxPacketLoss            float64
 		AvgPacketLoss            float64
+		// Time tracking
+		FirstIncident            string
+		LastResolved             string
+		TotalDurationStr         string
 	}
 	
 	targetBreakdowns := make(map[string]*TargetBreakdown)
@@ -906,6 +910,12 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 				}
 			}
 			
+			// Track per-target first incident time (need to parse as we're comparing strings later)
+			targetFirstTime := problem.Timestamp
+			if targetBreakdowns[target.Name].FirstIncident == "" || problem.Timestamp.Before(targetFirstTime) {
+				targetBreakdowns[target.Name].FirstIncident = problem.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour).Format("2006-01-02 15:04:05")
+			}
+			
 			// Update target breakdown counts
 			targetBreakdowns[target.Name].TotalCount++
 			
@@ -923,6 +933,9 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 				// Track per target
 				targetBreakdowns[target.Name].ResolvedCount++
 				targetBreakdowns[target.Name].TotalDuration += durationSeconds
+				
+				// Track per-target last resolved time
+				targetBreakdowns[target.Name].LastResolved = resolvedTime.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour).Format("2006-01-02 15:04:05")
 				
 				// Track per incident type globally
 				switch problem.EventType {
@@ -1039,6 +1052,11 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 				sum += val
 			}
 			breakdown.AvgPacketLoss = sum / float64(len(breakdown.PacketLossValues))
+		}
+		
+		// Calculate total duration string for this target
+		if breakdown.ResolvedCount > 0 {
+			breakdown.TotalDurationStr = formatDuration(time.Duration(breakdown.TotalDuration * float64(time.Second)))
 		}
 		
 		topTargets = append(topTargets, breakdown)
