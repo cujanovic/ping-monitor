@@ -1086,11 +1086,11 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		lastResolvedStr = lastResolvedTime.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour).Format("2006-01-02 15:04:05")
 	}
 	
-	// Calculate total duration between first incident and last resolved
+	// Calculate total duration as sum of all resolved incident durations
 	totalDurationStr := ""
-	if !firstIncidentTime.IsZero() && !lastResolvedTime.IsZero() {
-		totalDur := lastResolvedTime.Sub(firstIncidentTime)
-		totalDurationStr = formatDuration(totalDur)
+	if resolvedCount > 0 {
+		// totalDuration already contains the sum of all resolved incident durations
+		totalDurationStr = formatDuration(time.Duration(totalDuration * float64(time.Second)))
 	}
 
 	return map[string]interface{}{

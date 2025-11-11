@@ -328,8 +328,13 @@ pre {
 	</div>
 	{{if index .IncidentsSummary "FirstIncident"}}
 	<div style="color: #999; font-size: 11px; margin-bottom: 4px;">
-		📅 First: <span style="color: #888;">{{index .IncidentsSummary "FirstIncident"}}</span>{{if index .IncidentsSummary "LastResolved"}} • Last resolved: <span style="color: #888;">{{index .IncidentsSummary "LastResolved"}}</span>{{end}}{{if index .IncidentsSummary "TotalDuration"}} • <span style="color: #569cd6;">Total: {{index .IncidentsSummary "TotalDuration"}}</span>{{end}}
+		📅 First: <span style="color: #888;">{{index .IncidentsSummary "FirstIncident"}}</span>{{if index .IncidentsSummary "LastResolved"}} • Last resolved: <span style="color: #888;">{{index .IncidentsSummary "LastResolved"}}</span>{{end}}
 	</div>
+	{{if index .IncidentsSummary "TotalDuration"}}
+	<div style="color: #999; font-size: 11px; margin-bottom: 4px; padding-left: 20px;">
+		<span style="color: #569cd6;">Total: {{index .IncidentsSummary "TotalDuration"}}</span>
+	</div>
+	{{end}}
 	{{end}}
 	{{$topTargets := index .IncidentsSummary "TopTargets"}}
 	{{if $topTargets}}
