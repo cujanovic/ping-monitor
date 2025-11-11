@@ -330,6 +330,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	
 	// Get recent incidents
 	incidents := pm.getRecentIncidents()
+	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
 	
 	data := struct {
 		DownCount        int
@@ -352,7 +353,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			IsResolved    bool
 			Duration      string
 		}
-		IncidentsHours int
+		IncidentsHours   int
+		IncidentsSummary map[string]interface{}
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -367,6 +369,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		Targets:          targets,
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
+		IncidentsSummary: summary,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -460,6 +463,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	
 	// Get recent incidents
 	incidents := pm.getRecentIncidents()
+	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
 	
 	data := struct {
 		DownCount        int
@@ -486,7 +490,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			IsResolved    bool
 			Duration      string
 		}
-		IncidentsHours int
+		IncidentsHours   int
+		IncidentsSummary map[string]interface{}
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -505,6 +510,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		Targets:          targets,
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
+		IncidentsSummary: summary,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {

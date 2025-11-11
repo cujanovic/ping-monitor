@@ -335,9 +335,9 @@
 			</div>
 			<div style="color: #aaa; margin-bottom: 8px; font-size: 12px;">
 				By Type: &nbsp;
-				{{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">🔴 {{index .IncidentsSummary "DowntimeCount"}} Downtime</span>&nbsp;&nbsp;{{end}}
-				{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">⚠️ {{index .IncidentsSummary "HighLatencyCount"}} High Latency</span>&nbsp;&nbsp;{{end}}
-				{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">📶 {{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span>{{end}}
+				{{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">🔴 {{index .IncidentsSummary "DowntimeCount"}} Downtime</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgDowntimeResolution"}})</span>&nbsp;&nbsp;{{end}}
+				{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">⚠️ {{index .IncidentsSummary "HighLatencyCount"}} High Latency</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgHighLatencyResolution"}})</span>&nbsp;&nbsp;{{end}}
+				{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">📶 {{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgPacketLossResolution"}})</span>{{end}}
 			</div>
 			{{$topTargets := index .IncidentsSummary "TopTargets"}}
 			{{if $topTargets}}
@@ -351,7 +351,7 @@
 						{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
 						{{else}}<span style="color: #4CAF50;">🟢</span>
 						{{end}}
-						<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span>
+						<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span> | <span style="color: #569cd6;">Avg: {{.AvgResolution}}</span>
 						<div style="color: #777; font-size: 11px; padding-left: 20px; margin-top: 2px;">
 							({{if gt .DownCount 0}}<span style="color: #f44336;">🔴 {{.DownCount}} down</span>{{if or (gt .HighLatencyCount 0) (gt .PacketLossCount 0)}}, {{end}}{{end}}{{if gt .HighLatencyCount 0}}<span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span>{{if gt .PacketLossCount 0}}, {{end}}{{end}}{{if gt .PacketLossCount 0}}<span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span>{{end}})
 						</div>

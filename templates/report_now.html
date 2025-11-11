@@ -209,6 +209,50 @@ h2 {
 </div>
 {{if .RecentIncidents}}
 <h2>Recent Incidents (Last {{.IncidentsHours}} hours)</h2>
+
+{{if .IncidentsSummary}}
+{{if gt (index .IncidentsSummary "TotalIncidents") 0}}
+<div style="background: #1e1e2e; border-left: 3px solid #667eea; padding: 12px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 13px;">
+	<div style="color: #e0e0e0; margin-bottom: 8px;">
+		📊 <strong>Total: {{index .IncidentsSummary "TotalIncidents"}} incidents</strong> | 
+		{{if eq (index .IncidentsSummary "ResolvedPercent") 100}}
+		<span style="color: #4CAF50;">{{index .IncidentsSummary "ResolvedPercent"}}% Resolved ✓</span>
+		{{else}}
+		<span style="color: #FF9800;">{{index .IncidentsSummary "ResolvedPercent"}}% Resolved</span>
+		{{end}}
+		 | Avg Resolution: <span style="color: #569cd6;">{{index .IncidentsSummary "AvgResolution"}}</span>
+	</div>
+	<div style="color: #aaa; margin-bottom: 8px; font-size: 12px;">
+		By Type: &nbsp;
+		{{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">🔴 {{index .IncidentsSummary "DowntimeCount"}} Downtime</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgDowntimeResolution"}})</span>&nbsp;&nbsp;{{end}}
+		{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">⚠️ {{index .IncidentsSummary "HighLatencyCount"}} High Latency</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgHighLatencyResolution"}})</span>&nbsp;&nbsp;{{end}}
+		{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">📶 {{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span> <span style="color: #888;">(avg: {{index .IncidentsSummary "AvgPacketLossResolution"}})</span>{{end}}
+	</div>
+	{{$topTargets := index .IncidentsSummary "TopTargets"}}
+	{{if $topTargets}}
+	<div style="color: #999; font-size: 12px;">
+		Affected Targets (sorted by incident count):
+		<div style="margin-top: 4px; padding-left: 10px;">
+		{{range $topTargets}}
+			<div style="margin-bottom: 6px;">
+				{{if ge .TotalCount 80}}<span style="color: #f44336;">🔴</span>
+				{{else if ge .TotalCount 40}}<span style="color: #FF9800;">🟠</span>
+				{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
+				{{else}}<span style="color: #4CAF50;">🟢</span>
+				{{end}}
+				<span style="color: #e0e0e0;">{{.Name}}</span>: <span style="color: #888;">{{.TotalCount}} incidents</span> | <span style="color: #569cd6;">Avg: {{.AvgResolution}}</span>
+				<div style="color: #777; font-size: 11px; padding-left: 20px; margin-top: 2px;">
+					({{if gt .DownCount 0}}<span style="color: #f44336;">🔴 {{.DownCount}} down</span>{{if or (gt .HighLatencyCount 0) (gt .PacketLossCount 0)}}, {{end}}{{end}}{{if gt .HighLatencyCount 0}}<span style="color: #FF9800;">⚠️ {{.HighLatencyCount}} high latency</span>{{if gt .PacketLossCount 0}}, {{end}}{{end}}{{if gt .PacketLossCount 0}}<span style="color: #FFC107;">📶 {{.PacketLossCount}} packet loss</span>{{end}})
+				</div>
+			</div>
+		{{end}}
+		</div>
+	</div>
+	{{end}}
+</div>
+{{end}}
+{{end}}
+
 <div class="status" style="background: #1e1e1e; color: #d4d4d4; padding: 20px; border-radius: 15px; margin: 20px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.3); max-height: 400px; overflow-y: auto;">
 {{range .RecentIncidents}}<div style="background: #2a1a1a; border-left: 3px solid #f44336; padding: 12px; margin: 8px 0; border-radius: 8px;">
 <strong style="display: block; margin-bottom: 4px;"><a href="http://{{.TargetAddress}}" target="_blank" class="target-link" style="color: #f48fb1;">{{.TargetName}}</a></strong>

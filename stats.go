@@ -766,6 +766,11 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	
 	var totalDuration float64
 	
+	// Track durations by incident type for average calculation
+	downtimeDurations := make([]float64, 0)
+	highLatencyDurations := make([]float64, 0)
+	packetLossDurations := make([]float64, 0)
+	
 	type ProblemEvent struct {
 		Timestamp   time.Time
 		EventType   string
@@ -782,6 +787,9 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 		DownCount        int
 		HighLatencyCount int
 		PacketLossCount  int
+		ResolvedCount    int
+		TotalDuration    float64 // in seconds
+		AvgResolution    string
 	}
 	
 	targetBreakdowns := make(map[string]*TargetBreakdown)
@@ -866,7 +874,22 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 			
 			if problem.Resolved {
 				resolvedCount++
-				totalDuration += problem.Duration.Seconds()
+				durationSeconds := problem.Duration.Seconds()
+				totalDuration += durationSeconds
+				
+				// Track per target
+				targetBreakdowns[target.Name].ResolvedCount++
+				targetBreakdowns[target.Name].TotalDuration += durationSeconds
+				
+				// Track per incident type
+				switch problem.EventType {
+				case "down":
+					downtimeDurations = append(downtimeDurations, durationSeconds)
+				case "high_latency":
+					highLatencyDurations = append(highLatencyDurations, durationSeconds)
+				case "packet_loss":
+					packetLossDurations = append(packetLossDurations, durationSeconds)
+				}
 			}
 			
 			switch problem.EventType {
@@ -899,20 +922,58 @@ func (pm *PingMonitor) getIncidentsSummary(hoursBack int) map[string]interface{}
 	// Get all affected targets sorted by incident count (most affected first)
 	topTargets := make([]*TargetBreakdown, 0)
 	for _, breakdown := range targetBreakdowns {
+		// Calculate avg resolution time for this target
+		if breakdown.ResolvedCount > 0 {
+			avgSeconds := breakdown.TotalDuration / float64(breakdown.ResolvedCount)
+			breakdown.AvgResolution = fmt.Sprintf("%.0fs", avgSeconds)
+		} else {
+			breakdown.AvgResolution = "N/A"
+		}
 		topTargets = append(topTargets, breakdown)
 	}
 	sort.Slice(topTargets, func(i, j int) bool {
 		return topTargets[i].TotalCount > topTargets[j].TotalCount
 	})
 
+	// Calculate average resolution time by incident type
+	avgDowntimeResolution := "N/A"
+	if len(downtimeDurations) > 0 {
+		var sum float64
+		for _, d := range downtimeDurations {
+			sum += d
+		}
+		avgDowntimeResolution = fmt.Sprintf("%.0fs", sum/float64(len(downtimeDurations)))
+	}
+	
+	avgHighLatencyResolution := "N/A"
+	if len(highLatencyDurations) > 0 {
+		var sum float64
+		for _, d := range highLatencyDurations {
+			sum += d
+		}
+		avgHighLatencyResolution = fmt.Sprintf("%.0fs", sum/float64(len(highLatencyDurations)))
+	}
+	
+	avgPacketLossResolution := "N/A"
+	if len(packetLossDurations) > 0 {
+		var sum float64
+		for _, d := range packetLossDurations {
+			sum += d
+		}
+		avgPacketLossResolution = fmt.Sprintf("%.0fs", sum/float64(len(packetLossDurations)))
+	}
+
 	return map[string]interface{}{
-		"TotalIncidents":    totalIncidents,
-		"ResolvedCount":     resolvedCount,
-		"ResolvedPercent":   resolvedPercent,
-		"DowntimeCount":     downtimeCount,
-		"HighLatencyCount":  highLatencyCount,
-		"PacketLossCount":   packetLossCount,
-		"AvgResolution":     avgResolution,
-		"TopTargets":        topTargets,
+		"TotalIncidents":           totalIncidents,
+		"ResolvedCount":            resolvedCount,
+		"ResolvedPercent":          resolvedPercent,
+		"DowntimeCount":            downtimeCount,
+		"HighLatencyCount":         highLatencyCount,
+		"PacketLossCount":          packetLossCount,
+		"AvgResolution":            avgResolution,
+		"AvgDowntimeResolution":    avgDowntimeResolution,
+		"AvgHighLatencyResolution": avgHighLatencyResolution,
+		"AvgPacketLossResolution":  avgPacketLossResolution,
+		"TopTargets":               topTargets,
 	}
 }
