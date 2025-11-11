@@ -282,7 +282,7 @@
 	</div>
 	
 	{{if .RecentIncidents}}
-	<div class="targets" style="margin-top: 30px;">
+	<div class="targets" style="margin-top: 30px; text-align: left;">
 		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Recent Incidents (Last {{.IncidentsHours}} hours)</h2>
 		
 {{if .IncidentsSummary}}
@@ -381,7 +381,7 @@
 			</div>
 		</div>
 		
-		<div class="targets">
+		<div class="targets" style="text-align: left;">
 			<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Monitored Targets</h2>
 			<div class="targets-list">
 				{{range .Targets}}
