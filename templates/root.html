@@ -127,7 +127,8 @@
 	.target-info {
 		flex: 1;
 		min-width: 0;
-		overflow: hidden;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
 		text-align: left;
 	}
 	.target-info strong {
@@ -242,9 +243,13 @@
 	.target-info strong {
 		font-size: 14px;
 		color: #e0e0e0;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
 	}
 	.target-info span {
 		font-size: 11px;
+		word-wrap: break-word;
+		overflow-wrap: break-word;
 	}
 	.target-status {
 		margin-left: 0;
@@ -257,6 +262,24 @@
 	}
 	h2 {
 		font-size: 16px !important;
+	}
+	/* Better incident summary wrapping on mobile */
+	.status > div {
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+	}
+	#incidentSearch {
+		font-size: 14px !important;
+		padding: 8px 12px !important;
+	}
+	/* Ensure all nested divs handle wrapping properly */
+	div[style*="padding-left"] {
+		overflow-wrap: break-word !important;
+		word-wrap: break-word !important;
+	}
+	/* Better mobile spacing for incident items */
+	.incident-item {
+		padding: 10px !important;
 	}
 	}
 </style>
@@ -288,7 +311,7 @@
 {{if .IncidentsSummary}}
 {{if gt (index .IncidentsSummary "TotalIncidents") 0}}
 <div style="background: #1e1e2e; border-left: 3px solid #667eea; padding: 12px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 13px;">
-	<div style="color: #e0e0e0; margin-bottom: 8px;">
+	<div style="color: #e0e0e0; margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word;">
 		📊 <strong>Total: {{index .IncidentsSummary "TotalIncidents"}} incidents</strong> | 
 		{{if eq (index .IncidentsSummary "ResolvedPercent") 100}}
 		<span style="color: #4CAF50;">{{index .IncidentsSummary "ResolvedPercent"}}% Resolved ✓</span>
@@ -297,7 +320,7 @@
 		{{end}}
 		 | Avg Resolution: <span style="color: #569cd6;">{{index .IncidentsSummary "AvgResolution"}}</span>
 	</div>
-	<div style="color: #aaa; margin-bottom: 8px; font-size: 11px; white-space: nowrap;">
+	<div style="color: #aaa; margin-bottom: 8px; font-size: 11px; overflow-wrap: break-word; word-wrap: break-word;">
 		{{if gt (index .IncidentsSummary "DowntimeCount") 0}}<span style="color: #f44336;">{{index .IncidentsSummary "DowntimeCount"}} Downtime</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgDowntimeResolution"}})</span> {{end}}{{if gt (index .IncidentsSummary "HighLatencyCount") 0}}<span style="color: #FF9800;">{{index .IncidentsSummary "HighLatencyCount"}} High Latency</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgHighLatencyResolution"}})</span> {{end}}{{if gt (index .IncidentsSummary "PacketLossCount") 0}}<span style="color: #FFC107;">{{index .IncidentsSummary "PacketLossCount"}} Packet Loss</span> <span style="color: #777;">(avg: {{index .IncidentsSummary "AvgPacketLossResolution"}})</span>{{end}}
 	</div>
 	{{if index .IncidentsSummary "FirstIncident"}}
@@ -312,11 +335,11 @@
 	{{end}}
 	{{$topTargets := index .IncidentsSummary "TopTargets"}}
 	{{if $topTargets}}
-	<div style="color: #999; font-size: 12px;">
+	<div style="color: #999; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word;">
 		Affected Targets (sorted by incident count):
 		<div style="margin-top: 4px; padding-left: 10px;">
 		{{range $topTargets}}
-			<div style="margin-bottom: 8px;">
+			<div style="margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word;">
 				{{if ge .TotalCount 80}}<span style="color: #f44336;">🔴</span>
 				{{else if ge .TotalCount 40}}<span style="color: #FF9800;">🟠</span>
 				{{else if ge .TotalCount 20}}<span style="color: #FFC107;">🟡</span>
@@ -389,8 +412,8 @@
 				{{range .Targets}}
 				<div class="target-item-home">
 					<div class="target-info">
-						<strong style="display: block; overflow: hidden; text-overflow: ellipsis;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
-						<span style="color: #888; font-size: 12px;">{{.Label}}: {{.Address}}</span>
+						<strong style="display: block; word-wrap: break-word; overflow-wrap: break-word;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
+						<span style="color: #888; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word;">{{.Label}}: {{.Address}}</span>
 						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
 					</div>
 					<div class="target-status">
