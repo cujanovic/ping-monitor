@@ -33,6 +33,7 @@ type SessionManager struct {
 	loginAttempts  map[string]*LoginAttempt
 	mu             sync.RWMutex
 	config         *Config
+	stopChan       chan struct{}
 }
 
 // NewSessionManager creates a new session manager
@@ -41,6 +42,7 @@ func NewSessionManager(config *Config) *SessionManager {
 		sessions:      make(map[string]*Session),
 		loginAttempts: make(map[string]*LoginAttempt),
 		config:        config,
+		stopChan:      make(chan struct{}),
 	}
 	
 	// Start cleanup goroutine
@@ -54,21 +56,39 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		sm.mu.Lock()
-		now := time.Now()
-		for token, session := range sm.sessions {
-			if now.After(session.ExpiresAt) {
-				delete(sm.sessions, token)
+	for {
+		select {
+		case <-ticker.C:
+			sm.mu.Lock()
+			now := time.Now()
+			for token, session := range sm.sessions {
+				if now.After(session.ExpiresAt) {
+					delete(sm.sessions, token)
+				}
 			}
-		}
-		// Clean up expired lockouts
-		for ip, attempt := range sm.loginAttempts {
-			if now.After(attempt.LockedUntil) && attempt.Count >= sm.config.MaxLoginAttempts {
-				delete(sm.loginAttempts, ip)
+			// Clean up expired lockouts
+			for ip, attempt := range sm.loginAttempts {
+				if now.After(attempt.LockedUntil) && attempt.Count >= sm.config.MaxLoginAttempts {
+					delete(sm.loginAttempts, ip)
+				}
 			}
+			sm.mu.Unlock()
+		
+		case <-sm.stopChan:
+			// Stop cleanup goroutine
+			return
 		}
-		sm.mu.Unlock()
+	}
+}
+
+// Stop stops the session manager cleanup goroutine
+func (sm *SessionManager) Stop() {
+	select {
+	case <-sm.stopChan:
+		// Already stopped
+		return
+	default:
+		close(sm.stopChan)
 	}
 }
 

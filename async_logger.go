@@ -97,7 +97,13 @@ func (al *AsyncLogger) GetLogs() []LogEntry {
 
 // Stop gracefully stops the async logger
 func (al *AsyncLogger) Stop() {
-	close(al.stopChan)
-	al.flushTicker.Stop()
+	select {
+	case <-al.stopChan:
+		// Already stopped
+		return
+	default:
+		close(al.stopChan)
+		al.flushTicker.Stop()
+	}
 }
 

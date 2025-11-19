@@ -65,15 +65,8 @@ func main() {
 		<-sigChan
 		log.Printf("👋 Shutting down gracefully...")
 		
-		// Save state one last time before shutdown
-		if config.StateFilePath != "" {
-			log.Printf("💾 Saving final state before shutdown...")
-			if err := monitor.saveState(); err != nil {
-				log.Printf("⚠️ Failed to save final state: %v", err)
-			} else {
-				log.Printf("✅ Final state saved successfully")
-			}
-		}
+		// Stop monitor (this will save state and clean up all goroutines)
+		monitor.Stop()
 		
 		os.Exit(0)
 	}()

@@ -15,14 +15,16 @@ import (
 
 // PingMonitor handles the monitoring logic
 type PingMonitor struct {
-	config             Config
-	downTargets        map[string]bool
-	downSince          map[string]time.Time
-	slowTargets        map[string]bool
-	slowSince          map[string]time.Time
-	packetLossTargets  map[string]bool
-	packetLossSince    map[string]time.Time
-	lastAlertTime      map[AlertKey]time.Time
+	config                    Config
+	downTargets               map[string]bool
+	downSince                 map[string]time.Time
+	slowTargets               map[string]bool
+	slowSince                 map[string]time.Time
+	slowConsecutiveCount      map[string]int         // Track consecutive high latency occurrences
+	packetLossTargets         map[string]bool
+	packetLossSince           map[string]time.Time
+	packetLossConsecutiveCount map[string]int        // Track consecutive packet loss occurrences
+	lastAlertTime             map[AlertKey]time.Time
 	emailsSentThisHour []time.Time
 	targetStats        map[string]*TargetStats
 	statsStartTime     time.Time // Reset after each report for tracking report duration
@@ -42,6 +44,7 @@ type PingMonitor struct {
 	targetLocks        map[string]*TargetLock // Per-target locks
 	lastStateSave      time.Time        // Last time state was saved to disk
 	stateSavePending   bool             // Flag indicating state needs to be saved
+	stopChan           chan struct{}    // Signal to stop all goroutines
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
 }
@@ -56,6 +59,31 @@ func NewPingMonitor(config Config) *PingMonitor {
 	// Set defaults
 	if config.PacketLossThresholdPercent == 0 {
 		config.PacketLossThresholdPercent = 50
+	}
+	if config.HighLatencyConsecutiveCount == 0 {
+		config.HighLatencyConsecutiveCount = 1 // Default: alert immediately (backward compatible)
+	}
+	if config.PacketLossConsecutiveCount == 0 {
+		config.PacketLossConsecutiveCount = 1 // Default: alert immediately (backward compatible)
+	}
+	// Rapid confirmation defaults
+	if config.HighLatencyRapidConfirmDelaySeconds == 0 {
+		config.HighLatencyRapidConfirmDelaySeconds = 2
+	}
+	if config.HighLatencyRapidConfirmCount == 0 {
+		config.HighLatencyRapidConfirmCount = 2
+	}
+	if config.HighLatencyRapidConfirmIntervalSeconds == 0 {
+		config.HighLatencyRapidConfirmIntervalSeconds = 3
+	}
+	if config.PacketLossRapidConfirmDelaySeconds == 0 {
+		config.PacketLossRapidConfirmDelaySeconds = 2
+	}
+	if config.PacketLossRapidConfirmCount == 0 {
+		config.PacketLossRapidConfirmCount = 2
+	}
+	if config.PacketLossRapidConfirmIntervalSeconds == 0 {
+		config.PacketLossRapidConfirmIntervalSeconds = 3
 	}
 	if config.AlertCooldownMinutes == 0 {
 		config.AlertCooldownMinutes = 15
@@ -179,13 +207,15 @@ func NewPingMonitor(config Config) *PingMonitor {
 
 	pm := &PingMonitor{
 		config:             config,
-		downTargets:        make(map[string]bool),
-		downSince:          make(map[string]time.Time),
-		slowTargets:        make(map[string]bool),
-		slowSince:          make(map[string]time.Time),
-		packetLossTargets:  make(map[string]bool),
-		packetLossSince:    make(map[string]time.Time),
-		lastAlertTime:      make(map[AlertKey]time.Time),
+		downTargets:               make(map[string]bool),
+		downSince:                 make(map[string]time.Time),
+		slowTargets:               make(map[string]bool),
+		slowSince:                 make(map[string]time.Time),
+		slowConsecutiveCount:      make(map[string]int),
+		packetLossTargets:         make(map[string]bool),
+		packetLossSince:           make(map[string]time.Time),
+		packetLossConsecutiveCount: make(map[string]int),
+		lastAlertTime:             make(map[AlertKey]time.Time),
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
 		statsStartTime:     time.Now(),
@@ -197,6 +227,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		brevoClient:        brevoClient,
 		dnsCache:           dnsCache,
 		asyncLogger:        asyncLogger,
+		stopChan:           make(chan struct{}),
 		workerPool:         workerPool,
 		statsCache:         statsCache,
 		incidentsBuffer:    incidentsBuffer,
@@ -204,6 +235,41 @@ func NewPingMonitor(config Config) *PingMonitor {
 	}
 
 	return pm
+}
+
+// Stop gracefully stops all goroutines and saves state
+func (pm *PingMonitor) Stop() {
+	log.Printf("🛑 Stopping PingMonitor...")
+	
+	// Signal all goroutines to stop
+	select {
+	case <-pm.stopChan:
+		// Already stopped
+		return
+	default:
+		close(pm.stopChan)
+	}
+	
+	// Stop components
+	if pm.sessionManager != nil {
+		pm.sessionManager.Stop()
+	}
+	if pm.asyncLogger != nil {
+		pm.asyncLogger.Stop()
+	}
+	if pm.workerPool != nil {
+		pm.workerPool.Stop()
+	}
+	
+	// Save final state
+	if pm.config.StateFilePath != "" {
+		log.Printf("💾 Saving final state...")
+		if err := pm.saveState(); err != nil {
+			log.Printf("⚠️ Failed to save final state: %v", err)
+		}
+	}
+	
+	log.Printf("✅ PingMonitor stopped gracefully")
 }
 
 // Start begins the monitoring process
@@ -236,8 +302,13 @@ func (pm *PingMonitor) Start() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Minute) // Cleanup every 30 minutes
 		defer ticker.Stop()
-		for range ticker.C {
-			pm.dnsCache.CleanupExpired()
+		for {
+			select {
+			case <-ticker.C:
+				pm.dnsCache.CleanupExpired()
+			case <-pm.stopChan:
+				return
+			}
 		}
 	}()
 
@@ -269,27 +340,33 @@ func (pm *PingMonitor) Start() {
 			ticker := time.NewTicker(1 * time.Second) // Check every second
 			defer ticker.Stop()
 			
-			for range ticker.C {
-				pm.mu.Lock()
-				needsSave := pm.stateSavePending
-				
-				// Check throttle: only save if enough time has passed since last save
-				if needsSave {
-					timeSinceLastSave := time.Since(pm.lastStateSave).Seconds()
-					if timeSinceLastSave >= float64(throttleSeconds) {
-						pm.stateSavePending = false
-						pm.lastStateSave = time.Now()
-						pm.mu.Unlock()
-						
-						// Save state (outside lock to avoid blocking)
-						if err := pm.saveState(); err != nil {
-							log.Printf("⚠️ Failed to save state: %v", err)
+			for {
+				select {
+				case <-ticker.C:
+					pm.mu.Lock()
+					needsSave := pm.stateSavePending
+					
+					// Check throttle: only save if enough time has passed since last save
+					if needsSave {
+						timeSinceLastSave := time.Since(pm.lastStateSave).Seconds()
+						if timeSinceLastSave >= float64(throttleSeconds) {
+							pm.stateSavePending = false
+							pm.lastStateSave = time.Now()
+							pm.mu.Unlock()
+							
+							// Save state (outside lock to avoid blocking)
+							if err := pm.saveState(); err != nil {
+								log.Printf("⚠️ Failed to save state: %v", err)
+							}
+						} else {
+							pm.mu.Unlock()
 						}
 					} else {
 						pm.mu.Unlock()
 					}
-				} else {
-					pm.mu.Unlock()
+				
+				case <-pm.stopChan:
+					return
 				}
 			}
 		}()

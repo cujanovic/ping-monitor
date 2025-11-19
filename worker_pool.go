@@ -56,18 +56,35 @@ func (wp *WorkerPool) Submit(task func()) bool {
 
 // Stop gracefully stops the worker pool
 func (wp *WorkerPool) Stop() {
+	wp.mu.Lock()
+	if wp.stopped {
+		wp.mu.Unlock()
+		return // Already stopped
+	}
+	wp.stopped = true
+	wp.mu.Unlock()
+	
 	close(wp.stopChan)
 	wp.wg.Wait()
 }
 
 // WaitForCompletion waits for all submitted tasks to complete
 func (wp *WorkerPool) WaitForCompletion() {
-	// Close task channel and wait for workers to finish
-	close(wp.taskChan)
+	wp.mu.Lock()
+	if wp.stopped {
+		wp.mu.Unlock()
+		return // Pool is stopped, cannot restart
+	}
+	
+	// Close task channel temporarily
+	oldTaskChan := wp.taskChan
+	wp.taskChan = make(chan func(), wp.workers*2)
+	wp.mu.Unlock()
+	
+	close(oldTaskChan)
 	wp.wg.Wait()
 	
-	// Restart workers
-	wp.taskChan = make(chan func(), wp.workers*2)
+	// Restart workers with new task channel
 	for i := 0; i < wp.workers; i++ {
 		wp.wg.Add(1)
 		go wp.worker()

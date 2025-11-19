@@ -74,6 +74,8 @@ type WorkerPool struct {
 	taskChan  chan func()
 	wg        sync.WaitGroup
 	stopChan  chan struct{}
+	stopped   bool
+	mu        sync.Mutex
 }
 
 // CircularBuffer for recent incidents

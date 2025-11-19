@@ -9,11 +9,21 @@ import (
 
 // Config represents the configuration structure
 type Config struct {
-	PingIntervalSeconds        int      `json:"ping_interval_seconds"`
-	PingCount                  int      `json:"ping_count"`
-	PingTimeThresholdMs        int      `json:"ping_time_threshold_ms"`
-	PacketLossThresholdPercent int      `json:"packet_loss_threshold_percent"`
-	AlertCooldownMinutes       int      `json:"alert_cooldown_minutes"`
+	PingIntervalSeconds              int      `json:"ping_interval_seconds"`
+	PingCount                        int      `json:"ping_count"`
+	PingTimeThresholdMs                      int      `json:"ping_time_threshold_ms"`
+	PacketLossThresholdPercent               int      `json:"packet_loss_threshold_percent"`
+	HighLatencyConsecutiveCount              int      `json:"high_latency_consecutive_count"`
+	PacketLossConsecutiveCount               int      `json:"packet_loss_consecutive_count"`
+	HighLatencyRapidConfirmEnabled           bool     `json:"high_latency_rapid_confirm_enabled"`
+	HighLatencyRapidConfirmDelaySeconds      int      `json:"high_latency_rapid_confirm_delay_seconds"`
+	HighLatencyRapidConfirmCount             int      `json:"high_latency_rapid_confirm_count"`
+	HighLatencyRapidConfirmIntervalSeconds   int      `json:"high_latency_rapid_confirm_interval_seconds"`
+	PacketLossRapidConfirmEnabled            bool     `json:"packet_loss_rapid_confirm_enabled"`
+	PacketLossRapidConfirmDelaySeconds       int      `json:"packet_loss_rapid_confirm_delay_seconds"`
+	PacketLossRapidConfirmCount              int      `json:"packet_loss_rapid_confirm_count"`
+	PacketLossRapidConfirmIntervalSeconds    int      `json:"packet_loss_rapid_confirm_interval_seconds"`
+	AlertCooldownMinutes                     int      `json:"alert_cooldown_minutes"`
 	EmailRateLimitPerHour      int      `json:"email_rate_limit_per_hour"`
 	MaxConcurrentPings         int      `json:"max_concurrent_pings"`
 	DefaultTimeoutSeconds      int      `json:"default_timeout_seconds"`

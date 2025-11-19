@@ -162,101 +162,326 @@ func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packe
 	pm.mu.Lock()
 }
 
-// checkPacketLossThreshold checks and handles packet loss threshold violations
+// checkPacketLossThreshold checks and handles packet loss threshold violations with consecutive count
 func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, rttMs float64, now time.Time) {
 	packetLossThreshold := pm.getPacketLossThreshold(target)
 	hadPacketLoss := pm.packetLossTargets[target.TargetAddr]
 	hasPacketLoss := packetLoss >= packetLossThreshold
+	requiredConsecutive := pm.config.PacketLossConsecutiveCount
 
-	if hasPacketLoss && !hadPacketLoss {
-		pm.packetLossTargets[target.TargetAddr] = true
-		pm.packetLossSince[target.TargetAddr] = now
-		logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%)",
-			formatTargetInfo(target), packetLoss, packetLossThreshold)
-		log.Printf(logMsg)
-		pm.mu.Unlock()
+	if hasPacketLoss {
+		// Check if we should trigger rapid confirmation
+		if !hadPacketLoss && pm.config.PacketLossRapidConfirmEnabled && pm.packetLossConsecutiveCount[target.TargetAddr] == 0 {
+			// First detection - trigger rapid confirmation in background
+			log.Printf("🔍 %s packet loss detected (%d%% >= %d%%) - triggering rapid confirmation",
+				formatTargetInfo(target), packetLoss, packetLossThreshold)
+			
+			go pm.rapidConfirmPacketLoss(target, packetLossThreshold, now)
+			return // Let rapid confirmation handle the counting
+		}
+		
+		// Increment consecutive packet loss counter
+		pm.packetLossConsecutiveCount[target.TargetAddr]++
+		currentCount := pm.packetLossConsecutiveCount[target.TargetAddr]
 
-		pm.addLog(logMsg)
-		pm.recordEvent(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0)
+		if !hadPacketLoss && currentCount >= requiredConsecutive {
+			// Reached threshold - trigger alert
+			pm.packetLossTargets[target.TargetAddr] = true
+			pm.packetLossSince[target.TargetAddr] = now
+			logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%) for %d consecutive checks",
+				formatTargetInfo(target), packetLoss, packetLossThreshold, currentCount)
+			log.Printf(logMsg)
+			pm.mu.Unlock()
 
-		if pm.canSendAlert(target, "packet_loss") {
-			if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
-				log.Printf("⚠️  Failed to send packet loss notification for %s: %v", target.Name, err)
-			} else {
-				pm.recordAlert(target, "packet_loss")
+			pm.addLog(logMsg)
+			pm.recordEvent(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0)
+
+			if pm.canSendAlert(target, "packet_loss") {
+				if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
+					log.Printf("⚠️  Failed to send packet loss notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "packet_loss")
+				}
 			}
+			pm.mu.Lock()
+		} else if !hadPacketLoss && currentCount < requiredConsecutive {
+			// Packet loss detected but not enough consecutive occurrences yet
+			log.Printf("⚠️  %s packet loss detected (%d%% >= %d%%) [%d/%d consecutive]",
+				formatTargetInfo(target), packetLoss, packetLossThreshold, currentCount, requiredConsecutive)
 		}
-		pm.mu.Lock()
-	} else if !hasPacketLoss && hadPacketLoss {
-		duration := time.Duration(0)
-		if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
-			duration = time.Since(startTime)
+	} else {
+		// Packet loss is normal - reset counter
+		if pm.packetLossConsecutiveCount[target.TargetAddr] > 0 {
+			log.Printf("✓ %s packet loss returned to normal before alerting threshold (was %d/%d consecutive)",
+				formatTargetInfo(target), pm.packetLossConsecutiveCount[target.TargetAddr], requiredConsecutive)
 		}
-		delete(pm.packetLossTargets, target.TargetAddr)
-		delete(pm.packetLossSince, target.TargetAddr)
-		log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)",
-			formatTargetInfo(target), packetLoss, packetLossThreshold)
-		pm.mu.Unlock()
+		pm.packetLossConsecutiveCount[target.TargetAddr] = 0
 
-		pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
-
-		if pm.canSendAlert(target, "packet_loss_normal") {
-			if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
-				log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v", target.Name, err)
-			} else {
-				pm.recordAlert(target, "packet_loss_normal")
+		if hadPacketLoss {
+			// Had packet loss, now recovered
+			duration := time.Duration(0)
+			if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
+				duration = time.Since(startTime)
 			}
+			delete(pm.packetLossTargets, target.TargetAddr)
+			delete(pm.packetLossSince, target.TargetAddr)
+			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)",
+				formatTargetInfo(target), packetLoss, packetLossThreshold)
+			pm.mu.Unlock()
+
+			pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
+
+			if pm.canSendAlert(target, "packet_loss_normal") {
+				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
+					log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "packet_loss_normal")
+				}
+			}
+			pm.mu.Lock()
 		}
-		pm.mu.Lock()
 	}
 }
 
-// checkLatencyThreshold checks and handles latency threshold violations
+// checkLatencyThreshold checks and handles latency threshold violations with consecutive count
 func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packetLoss int, now time.Time) {
 	threshold := pm.getTargetThreshold(target)
 	wasSlow := pm.slowTargets[target.TargetAddr]
 	isSlow := rttMs > float64(threshold)
+	requiredConsecutive := pm.config.HighLatencyConsecutiveCount
 
-	if isSlow && !wasSlow {
-		pm.slowTargets[target.TargetAddr] = true
-		pm.slowSince[target.TargetAddr] = now
-		logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms)",
-			formatTargetInfo(target), rttMs, threshold)
-		log.Printf(logMsg)
-		pm.mu.Unlock()
+	if isSlow {
+		// Check if we should trigger rapid confirmation
+		if !wasSlow && pm.config.HighLatencyRapidConfirmEnabled && pm.slowConsecutiveCount[target.TargetAddr] == 0 {
+			// First detection - trigger rapid confirmation in background
+			log.Printf("🔍 %s high latency detected (%.2fms > %dms) - triggering rapid confirmation",
+				formatTargetInfo(target), rttMs, threshold)
+			
+			go pm.rapidConfirmHighLatency(target, threshold, now)
+			return // Let rapid confirmation handle the counting
+		}
+		
+		// Increment consecutive high latency counter
+		pm.slowConsecutiveCount[target.TargetAddr]++
+		currentCount := pm.slowConsecutiveCount[target.TargetAddr]
 
-		pm.addLog(logMsg)
-		pm.recordEvent(target, "high_latency", rttMs, float64(threshold), 0)
+		if !wasSlow && currentCount >= requiredConsecutive {
+			// Reached threshold - trigger alert
+			pm.slowTargets[target.TargetAddr] = true
+			pm.slowSince[target.TargetAddr] = now
+			logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms) for %d consecutive checks",
+				formatTargetInfo(target), rttMs, threshold, currentCount)
+			log.Printf(logMsg)
+			pm.mu.Unlock()
 
-		if pm.canSendAlert(target, "slow") {
-			if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
-				log.Printf("⚠️  Failed to send high latency notification for %s: %v", target.Name, err)
-			} else {
-				pm.recordAlert(target, "slow")
+			pm.addLog(logMsg)
+			pm.recordEvent(target, "high_latency", rttMs, float64(threshold), 0)
+
+			if pm.canSendAlert(target, "slow") {
+				if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
+					log.Printf("⚠️  Failed to send high latency notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "slow")
+				}
 			}
+			pm.mu.Lock()
+		} else if !wasSlow && currentCount < requiredConsecutive {
+			// High latency detected but not enough consecutive occurrences yet
+			log.Printf("⚠️  %s high latency detected (%.2fms > %dms) [%d/%d consecutive]",
+				formatTargetInfo(target), rttMs, threshold, currentCount, requiredConsecutive)
 		}
-		pm.mu.Lock()
-	} else if !isSlow && wasSlow {
-		duration := time.Duration(0)
-		if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
-			duration = time.Since(startTime)
+	} else {
+		// Latency is normal - reset counter
+		if pm.slowConsecutiveCount[target.TargetAddr] > 0 {
+			log.Printf("✓ %s latency returned to normal before alerting threshold (was %d/%d consecutive)",
+				formatTargetInfo(target), pm.slowConsecutiveCount[target.TargetAddr], requiredConsecutive)
 		}
-		delete(pm.slowTargets, target.TargetAddr)
-		delete(pm.slowSince, target.TargetAddr)
-		log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)",
-			formatTargetInfo(target), rttMs, threshold)
-		pm.mu.Unlock()
+		pm.slowConsecutiveCount[target.TargetAddr] = 0
 
-		pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
-
-		if pm.canSendAlert(target, "normal") {
-			if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
-				log.Printf("⚠️  Failed to send latency recovery notification for %s: %v", target.Name, err)
-			} else {
-				pm.recordAlert(target, "normal")
+		if wasSlow {
+			// Was slow, now recovered
+			duration := time.Duration(0)
+			if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
+				duration = time.Since(startTime)
 			}
+			delete(pm.slowTargets, target.TargetAddr)
+			delete(pm.slowSince, target.TargetAddr)
+			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)",
+				formatTargetInfo(target), rttMs, threshold)
+			pm.mu.Unlock()
+
+			pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
+
+			if pm.canSendAlert(target, "normal") {
+				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
+					log.Printf("⚠️  Failed to send latency recovery notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "normal")
+				}
+			}
+			pm.mu.Lock()
 		}
-		pm.mu.Lock()
 	}
 }
 
+// rapidConfirmHighLatency performs rapid confirmation checks when high latency is first detected
+func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, detectedTime time.Time) {
+	// Wait initial delay to let transient spikes settle
+	time.Sleep(time.Duration(pm.config.HighLatencyRapidConfirmDelaySeconds) * time.Second)
+	
+	confirmCount := 0
+	totalChecks := pm.config.HighLatencyRapidConfirmCount
+	
+	log.Printf("⚡ %s rapid confirmation started (%d checks, %ds interval)",
+		formatTargetInfo(target), totalChecks, pm.config.HighLatencyRapidConfirmIntervalSeconds)
+	
+	for i := 0; i < totalChecks; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(pm.config.HighLatencyRapidConfirmIntervalSeconds) * time.Second)
+		}
+		
+		// Perform quick ping
+		success, _, rttMs := pm.pingTarget(target)
+		
+		if success && rttMs > float64(threshold) {
+			confirmCount++
+			log.Printf("⚡ %s rapid check %d/%d: HIGH (%.2fms > %dms)",
+				formatTargetInfo(target), i+1, totalChecks, rttMs, threshold)
+		} else if success {
+			log.Printf("⚡ %s rapid check %d/%d: Normal (%.2fms)",
+				formatTargetInfo(target), i+1, totalChecks, rttMs)
+		} else {
+			log.Printf("⚡ %s rapid check %d/%d: Failed (down)",
+				formatTargetInfo(target), i+1, totalChecks)
+		}
+	}
+	
+	// Determine if majority confirms high latency
+	majorityThreshold := (totalChecks / 2) + 1
+	isConfirmed := confirmCount >= majorityThreshold
+	
+	pm.mu.Lock()
+	
+	// Check if target state hasn't changed during rapid checks
+	if pm.slowTargets[target.TargetAddr] {
+		pm.mu.Unlock()
+		log.Printf("⚡ %s rapid confirmation completed but target already marked slow", formatTargetInfo(target))
+		return
+	}
+	
+	if isConfirmed {
+		// Confirmed high latency - increment consecutive counter
+		pm.slowConsecutiveCount[target.TargetAddr]++
+		log.Printf("✅ %s rapid confirmation: CONFIRMED high latency (%d/%d checks) [%d/%d consecutive]",
+			formatTargetInfo(target), confirmCount, totalChecks,
+			pm.slowConsecutiveCount[target.TargetAddr], pm.config.HighLatencyConsecutiveCount)
+		
+		// Check if we've reached the consecutive threshold
+		if pm.slowConsecutiveCount[target.TargetAddr] >= pm.config.HighLatencyConsecutiveCount {
+			pm.slowTargets[target.TargetAddr] = true
+			pm.slowSince[target.TargetAddr] = detectedTime
+			logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (confirmed via rapid checks)",
+				formatTargetInfo(target))
+			log.Printf(logMsg)
+			pm.mu.Unlock()
+			
+			pm.addLog(logMsg)
+			pm.recordEvent(target, "high_latency", float64(threshold), float64(threshold), 0)
+			
+			if pm.canSendAlert(target, "slow") {
+				if err := pm.sendEmail(target, "slow", float64(threshold), 0, 0); err != nil {
+					log.Printf("⚠️  Failed to send high latency notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "slow")
+				}
+			}
+			return // Don't unlock again
+		}
+	} else {
+		log.Printf("✅ %s rapid confirmation: NOT confirmed (%d/%d high) - resetting counter",
+			formatTargetInfo(target), confirmCount, totalChecks)
+		pm.slowConsecutiveCount[target.TargetAddr] = 0
+	}
+	pm.mu.Unlock()
+}
+
+// rapidConfirmPacketLoss performs rapid confirmation checks when packet loss is first detected
+func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, detectedTime time.Time) {
+	// Wait initial delay to let transient spikes settle
+	time.Sleep(time.Duration(pm.config.PacketLossRapidConfirmDelaySeconds) * time.Second)
+	
+	confirmCount := 0
+	totalChecks := pm.config.PacketLossRapidConfirmCount
+	
+	log.Printf("⚡ %s packet loss rapid confirmation started (%d checks, %ds interval)",
+		formatTargetInfo(target), totalChecks, pm.config.PacketLossRapidConfirmIntervalSeconds)
+	
+	for i := 0; i < totalChecks; i++ {
+		if i > 0 {
+			time.Sleep(time.Duration(pm.config.PacketLossRapidConfirmIntervalSeconds) * time.Second)
+		}
+		
+		// Perform quick ping
+		success, packetLoss, _ := pm.pingTarget(target)
+		
+		if success && packetLoss >= lossThreshold {
+			confirmCount++
+			log.Printf("⚡ %s rapid check %d/%d: HIGH LOSS (%d%% >= %d%%)",
+				formatTargetInfo(target), i+1, totalChecks, packetLoss, lossThreshold)
+		} else if success {
+			log.Printf("⚡ %s rapid check %d/%d: Normal (%d%% loss)",
+				formatTargetInfo(target), i+1, totalChecks, packetLoss)
+		} else {
+			log.Printf("⚡ %s rapid check %d/%d: Failed (down)",
+				formatTargetInfo(target), i+1, totalChecks)
+		}
+	}
+	
+	// Determine if majority confirms packet loss
+	majorityThreshold := (totalChecks / 2) + 1
+	isConfirmed := confirmCount >= majorityThreshold
+	
+	pm.mu.Lock()
+	
+	// Check if target state hasn't changed during rapid checks
+	if pm.packetLossTargets[target.TargetAddr] {
+		pm.mu.Unlock()
+		log.Printf("⚡ %s rapid confirmation completed but target already marked with packet loss", formatTargetInfo(target))
+		return
+	}
+	
+	if isConfirmed {
+		// Confirmed packet loss - increment consecutive counter
+		pm.packetLossConsecutiveCount[target.TargetAddr]++
+		log.Printf("✅ %s rapid confirmation: CONFIRMED packet loss (%d/%d checks) [%d/%d consecutive]",
+			formatTargetInfo(target), confirmCount, totalChecks,
+			pm.packetLossConsecutiveCount[target.TargetAddr], pm.config.PacketLossConsecutiveCount)
+		
+		// Check if we've reached the consecutive threshold
+		if pm.packetLossConsecutiveCount[target.TargetAddr] >= pm.config.PacketLossConsecutiveCount {
+			pm.packetLossTargets[target.TargetAddr] = true
+			pm.packetLossSince[target.TargetAddr] = detectedTime
+			logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (confirmed via rapid checks)",
+				formatTargetInfo(target))
+			log.Printf(logMsg)
+			pm.mu.Unlock()
+			
+			pm.addLog(logMsg)
+			pm.recordEvent(target, "packet_loss", float64(lossThreshold), float64(lossThreshold), 0)
+			
+			if pm.canSendAlert(target, "packet_loss") {
+				if err := pm.sendEmail(target, "packet_loss", 0, lossThreshold, 0); err != nil {
+					log.Printf("⚠️  Failed to send packet loss notification for %s: %v", target.Name, err)
+				} else {
+					pm.recordAlert(target, "packet_loss")
+				}
+			}
+			return // Don't unlock again
+		}
+	} else {
+		log.Printf("✅ %s rapid confirmation: NOT confirmed (%d/%d high loss) - resetting counter",
+			formatTargetInfo(target), confirmCount, totalChecks)
+		pm.packetLossConsecutiveCount[target.TargetAddr] = 0
+	}
+	pm.mu.Unlock()
+}
