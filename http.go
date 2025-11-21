@@ -80,11 +80,6 @@ func initTemplates() *template.Template {
 
 // getClientIP extracts the client IP address from the request
 func getClientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		ips := strings.Split(forwarded, ",")
-		return strings.TrimSpace(ips[0])
-	}
-	
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -146,26 +141,72 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	
 	// Build targets list with status
 	type TargetInfo struct {
-		Name          string
-		Address       string
-		Label         string
-		IsDown        bool
-		IsSlow        bool
-		HasPacketLoss bool
-		LatencyMs     float64 // Latest ping latency in ms
+		Name              string
+		Address           string
+		Label             string
+		IsDown            bool
+		IsSlow            bool
+		HasPacketLoss     bool
+		LatencyMs         float64 // Latest ping latency in ms
+		FailedChecks      int64   // Total down checks
+		HighLatencyChecks int64   // Total high latency checks
+		PacketLossChecks  int64   // Total packet loss checks
+		TotalFailedChecks int64   // Sum of all failed checks
 	}
 	
 	pm.mu.RLock()
 	targets := make([]TargetInfo, len(pm.config.Targets))
+	var totalChecks, successfulChecks int64
+	var totalUptime float64
+	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
+	issueTargets := make([]TargetInfo, 0)
+	criticalTargets := make([]TargetInfo, 0)
+	
 	for i, target := range pm.config.Targets {
-		targets[i] = TargetInfo{
-			Name:          target.Name,
-			Address:       target.TargetAddr,
-			Label:         getTargetLabel(target.TargetAddr),
-			IsDown:        pm.downTargets[target.TargetAddr],
-			IsSlow:        pm.slowTargets[target.TargetAddr],
-			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
-			LatencyMs:     pm.lastLatency[target.TargetAddr],
+		stats := pm.targetStats[target.TargetAddr]
+		failedChecks := int64(0)
+		highLatencyChecks := int64(0)
+		packetLossChecks := int64(0)
+		totalChecksTarget := int64(0)
+		successfulChecksTarget := int64(0)
+		
+		if stats != nil {
+			failedChecks = stats.FailedChecks
+			highLatencyChecks = stats.HighLatencyCount
+			packetLossChecks = stats.PacketLossEvents
+			totalChecksTarget = stats.TotalChecks
+			successfulChecksTarget = stats.SuccessfulChecks
+		}
+		
+		targetInfo := TargetInfo{
+			Name:              target.Name,
+			Address:           target.TargetAddr,
+			Label:             getTargetLabel(target.TargetAddr),
+			IsDown:            pm.downTargets[target.TargetAddr],
+			IsSlow:            pm.slowTargets[target.TargetAddr],
+			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:         pm.lastLatency[target.TargetAddr],
+			FailedChecks:      failedChecks,
+			HighLatencyChecks: highLatencyChecks,
+			PacketLossChecks:  packetLossChecks,
+			TotalFailedChecks: failedChecks + highLatencyChecks + packetLossChecks,
+		}
+		targets[i] = targetInfo
+		
+		// Calculate health statistics while we have the lock
+		if totalChecksTarget > 0 {
+			uptimePercent := (float64(successfulChecksTarget) / float64(totalChecksTarget)) * 100
+			totalChecks += totalChecksTarget
+			successfulChecks += successfulChecksTarget
+			totalUptime += uptimePercent
+			
+			if uptimePercent >= 99.0 {
+				healthyTargets = append(healthyTargets, targetInfo)
+			} else if uptimePercent >= 95.0 {
+				issueTargets = append(issueTargets, targetInfo)
+			} else {
+				criticalTargets = append(criticalTargets, targetInfo)
+			}
 		}
 	}
 	pm.mu.RUnlock()
@@ -173,6 +214,16 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	// Get recent incidents
 	incidents := pm.getRecentIncidents()
 	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
+	
+	// Calculate final statistics
+	avgUptime := 0.0
+	if len(pm.config.Targets) > 0 {
+		avgUptime = totalUptime / float64(len(pm.config.Targets))
+	}
+	successRate := 0.0
+	if totalChecks > 0 {
+		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
+	}
 	
 	data := struct {
 		TargetCount      int
@@ -192,8 +243,15 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			Value         float64
 			Threshold     float64
 		}
-		IncidentsHours   int
-		IncidentsSummary map[string]interface{}
+		IncidentsHours     int
+		IncidentsSummary   map[string]interface{}
+		HealthyTargets     []TargetInfo
+		IssueTargets       []TargetInfo
+		CriticalTargets    []TargetInfo
+		AvgUptime          float64
+		TotalChecks        int64
+		SuccessfulChecks   int64
+		SuccessRate        float64
 	}{
 		TargetCount:      len(pm.config.Targets),
 		Uptime:           formatDuration(uptime),
@@ -204,6 +262,13 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
 		IncidentsSummary: summary,
+		HealthyTargets:   healthyTargets,
+		IssueTargets:     issueTargets,
+		CriticalTargets:  criticalTargets,
+		AvgUptime:        avgUptime,
+		TotalChecks:      totalChecks,
+		SuccessfulChecks: successfulChecks,
+		SuccessRate:      successRate,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
@@ -306,26 +371,72 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	
 	// Build targets list with status
 	type TargetInfo struct {
-		Name          string
-		Address       string
-		Label         string
-		IsDown        bool
-		IsSlow        bool
-		HasPacketLoss bool
-		LatencyMs     float64 // Latest ping latency in ms
+		Name              string
+		Address           string
+		Label             string
+		IsDown            bool
+		IsSlow            bool
+		HasPacketLoss     bool
+		LatencyMs         float64 // Latest ping latency in ms
+		FailedChecks      int64   // Total down checks
+		HighLatencyChecks int64   // Total high latency checks
+		PacketLossChecks  int64   // Total packet loss checks
+		TotalFailedChecks int64   // Sum of all failed checks
 	}
 	
 	pm.mu.RLock()
 	targets := make([]TargetInfo, len(pm.config.Targets))
+	var totalChecks, successfulChecks int64
+	var totalUptime float64
+	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
+	issueTargets := make([]TargetInfo, 0)
+	criticalTargets := make([]TargetInfo, 0)
+	
 	for i, target := range pm.config.Targets {
-		targets[i] = TargetInfo{
-			Name:          target.Name,
-			Address:       target.TargetAddr,
-			Label:         getTargetLabel(target.TargetAddr),
-			IsDown:        pm.downTargets[target.TargetAddr],
-			IsSlow:        pm.slowTargets[target.TargetAddr],
-			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
-			LatencyMs:     pm.lastLatency[target.TargetAddr],
+		stats := pm.targetStats[target.TargetAddr]
+		failedChecks := int64(0)
+		highLatencyChecks := int64(0)
+		packetLossChecks := int64(0)
+		totalChecksTarget := int64(0)
+		successfulChecksTarget := int64(0)
+		
+		if stats != nil {
+			failedChecks = stats.FailedChecks
+			highLatencyChecks = stats.HighLatencyCount
+			packetLossChecks = stats.PacketLossEvents
+			totalChecksTarget = stats.TotalChecks
+			successfulChecksTarget = stats.SuccessfulChecks
+		}
+		
+		targetInfo := TargetInfo{
+			Name:              target.Name,
+			Address:           target.TargetAddr,
+			Label:             getTargetLabel(target.TargetAddr),
+			IsDown:            pm.downTargets[target.TargetAddr],
+			IsSlow:            pm.slowTargets[target.TargetAddr],
+			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:         pm.lastLatency[target.TargetAddr],
+			FailedChecks:      failedChecks,
+			HighLatencyChecks: highLatencyChecks,
+			PacketLossChecks:  packetLossChecks,
+			TotalFailedChecks: failedChecks + highLatencyChecks + packetLossChecks,
+		}
+		targets[i] = targetInfo
+		
+		// Calculate health statistics while we have the lock
+		if totalChecksTarget > 0 {
+			uptimePercent := (float64(successfulChecksTarget) / float64(totalChecksTarget)) * 100
+			totalChecks += totalChecksTarget
+			successfulChecks += successfulChecksTarget
+			totalUptime += uptimePercent
+			
+			if uptimePercent >= 99.0 {
+				healthyTargets = append(healthyTargets, targetInfo)
+			} else if uptimePercent >= 95.0 {
+				issueTargets = append(issueTargets, targetInfo)
+			} else {
+				criticalTargets = append(criticalTargets, targetInfo)
+			}
 		}
 	}
 	pm.mu.RUnlock()
@@ -334,19 +445,29 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	incidents := pm.getRecentIncidents()
 	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
 	
+	// Calculate final statistics
+	avgUptime := 0.0
+	if len(pm.config.Targets) > 0 {
+		avgUptime = totalUptime / float64(len(pm.config.Targets))
+	}
+	successRate := 0.0
+	if totalChecks > 0 {
+		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
+	}
+	
 	data := struct {
-		DownCount        int
-		SlowCount        int
-		PacketLossCount  int
-		TotalTargets     int
-		Timestamp        string
-		LogCount         int
-		Logs             []FormattedLog
-		DownClass        string
-		SlowClass        string
-		PacketLossClass  string
-		Targets          []TargetInfo
-		RecentIncidents  []struct {
+		DownCount          int
+		SlowCount          int
+		PacketLossCount    int
+		TotalTargets       int
+		Timestamp          string
+		LogCount           int
+		Logs               []FormattedLog
+		DownClass          string
+		SlowClass          string
+		PacketLossClass    string
+		Targets            []TargetInfo
+		RecentIncidents    []struct {
 			TargetName    string
 			TargetAddress string
 			Timestamp     string
@@ -357,8 +478,15 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			Value         float64
 			Threshold     float64
 		}
-		IncidentsHours   int
-		IncidentsSummary map[string]interface{}
+		IncidentsHours     int
+		IncidentsSummary   map[string]interface{}
+		HealthyTargets     []TargetInfo
+		IssueTargets       []TargetInfo
+		CriticalTargets    []TargetInfo
+		AvgUptime          float64
+		TotalChecks        int64
+		SuccessfulChecks   int64
+		SuccessRate        float64
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -374,6 +502,13 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
 		IncidentsSummary: summary,
+		HealthyTargets:   healthyTargets,
+		IssueTargets:     issueTargets,
+		CriticalTargets:  criticalTargets,
+		AvgUptime:        avgUptime,
+		TotalChecks:      totalChecks,
+		SuccessfulChecks: successfulChecks,
+		SuccessRate:      successRate,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -441,26 +576,72 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	
 	// Build targets list with status
 	type TargetInfo struct {
-		Name          string
-		Address       string
-		Label         string
-		IsDown        bool
-		IsSlow        bool
-		HasPacketLoss bool
-		LatencyMs     float64 // Latest ping latency in ms
+		Name              string
+		Address           string
+		Label             string
+		IsDown            bool
+		IsSlow            bool
+		HasPacketLoss     bool
+		LatencyMs         float64 // Latest ping latency in ms
+		FailedChecks      int64   // Total down checks
+		HighLatencyChecks int64   // Total high latency checks
+		PacketLossChecks  int64   // Total packet loss checks
+		TotalFailedChecks int64   // Sum of all failed checks
 	}
 	
 	pm.mu.RLock()
 	targets := make([]TargetInfo, len(pm.config.Targets))
+	var totalChecks, successfulChecks int64
+	var totalUptime float64
+	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
+	issueTargets := make([]TargetInfo, 0)
+	criticalTargets := make([]TargetInfo, 0)
+	
 	for i, target := range pm.config.Targets {
-		targets[i] = TargetInfo{
-			Name:          target.Name,
-			Address:       target.TargetAddr,
-			Label:         getTargetLabel(target.TargetAddr),
-			IsDown:        pm.downTargets[target.TargetAddr],
-			IsSlow:        pm.slowTargets[target.TargetAddr],
-			HasPacketLoss: pm.packetLossTargets[target.TargetAddr],
-			LatencyMs:     pm.lastLatency[target.TargetAddr],
+		stats := pm.targetStats[target.TargetAddr]
+		failedChecks := int64(0)
+		highLatencyChecks := int64(0)
+		packetLossChecks := int64(0)
+		totalChecksTarget := int64(0)
+		successfulChecksTarget := int64(0)
+		
+		if stats != nil {
+			failedChecks = stats.FailedChecks
+			highLatencyChecks = stats.HighLatencyCount
+			packetLossChecks = stats.PacketLossEvents
+			totalChecksTarget = stats.TotalChecks
+			successfulChecksTarget = stats.SuccessfulChecks
+		}
+		
+		targetInfo := TargetInfo{
+			Name:              target.Name,
+			Address:           target.TargetAddr,
+			Label:             getTargetLabel(target.TargetAddr),
+			IsDown:            pm.downTargets[target.TargetAddr],
+			IsSlow:            pm.slowTargets[target.TargetAddr],
+			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			LatencyMs:         pm.lastLatency[target.TargetAddr],
+			FailedChecks:      failedChecks,
+			HighLatencyChecks: highLatencyChecks,
+			PacketLossChecks:  packetLossChecks,
+			TotalFailedChecks: failedChecks + highLatencyChecks + packetLossChecks,
+		}
+		targets[i] = targetInfo
+		
+		// Calculate health statistics while we have the lock
+		if totalChecksTarget > 0 {
+			uptimePercent := (float64(successfulChecksTarget) / float64(totalChecksTarget)) * 100
+			totalChecks += totalChecksTarget
+			successfulChecks += successfulChecksTarget
+			totalUptime += uptimePercent
+			
+			if uptimePercent >= 99.0 {
+				healthyTargets = append(healthyTargets, targetInfo)
+			} else if uptimePercent >= 95.0 {
+				issueTargets = append(issueTargets, targetInfo)
+			} else {
+				criticalTargets = append(criticalTargets, targetInfo)
+			}
 		}
 	}
 	pm.mu.RUnlock()
@@ -469,23 +650,33 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	incidents := pm.getRecentIncidents()
 	summary := pm.getIncidentsSummary(pm.config.RecentIncidentsHours)
 	
+	// Calculate final statistics
+	avgUptime := 0.0
+	if len(pm.config.Targets) > 0 {
+		avgUptime = totalUptime / float64(len(pm.config.Targets))
+	}
+	successRate := 0.0
+	if totalChecks > 0 {
+		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
+	}
+	
 	data := struct {
-		DownCount        int
-		SlowCount        int
-		PacketLossCount  int
-		TotalTargets     int
-		Timestamp        string
-		LogCount         int
-		Logs             []FormattedLog
-		DownClass        string
-		SlowClass        string
-		PacketLossClass  string
-		EmailReport      string
-		Schedule         string
-		AllReports       []ReportWithContent
-		ReportsDir       string
-		Targets          []TargetInfo
-		RecentIncidents  []struct {
+		DownCount          int
+		SlowCount          int
+		PacketLossCount    int
+		TotalTargets       int
+		Timestamp          string
+		LogCount           int
+		Logs               []FormattedLog
+		DownClass          string
+		SlowClass          string
+		PacketLossClass    string
+		EmailReport        string
+		Schedule           string
+		AllReports         []ReportWithContent
+		ReportsDir         string
+		Targets            []TargetInfo
+		RecentIncidents    []struct {
 			TargetName    string
 			TargetAddress string
 			Timestamp     string
@@ -496,8 +687,15 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			Value         float64
 			Threshold     float64
 		}
-		IncidentsHours   int
-		IncidentsSummary map[string]interface{}
+		IncidentsHours     int
+		IncidentsSummary   map[string]interface{}
+		HealthyTargets     []TargetInfo
+		IssueTargets       []TargetInfo
+		CriticalTargets    []TargetInfo
+		AvgUptime          float64
+		TotalChecks        int64
+		SuccessfulChecks   int64
+		SuccessRate        float64
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -517,6 +715,13 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
 		IncidentsSummary: summary,
+		HealthyTargets:   healthyTargets,
+		IssueTargets:     issueTargets,
+		CriticalTargets:  criticalTargets,
+		AvgUptime:        avgUptime,
+		TotalChecks:      totalChecks,
+		SuccessfulChecks: successfulChecks,
+		SuccessRate:      successRate,
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {

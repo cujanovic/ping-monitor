@@ -316,6 +316,52 @@ pre {
 <p><strong>Total Targets Monitored:</strong> {{.TotalTargets}}</p>
 <p><strong>Report Generated:</strong> {{.Timestamp}}</p>
 </div>
+<h2>📈 Overall Health</h2>
+<div class="status">
+<div style="margin-bottom: 12px;">
+	<span style="color: #b0b0b0; font-size: 13px;">• All Up: </span>
+	<span style="color: #4CAF50; font-weight: 600;">{{len .HealthyTargets}} targets</span>
+	{{if gt (len .HealthyTargets) 0}}
+	<div style="margin-left: 20px; margin-top: 8px;">
+		{{range $index, $target := .HealthyTargets}}
+		{{if lt $index 3}}
+		<div style="font-size: 12px; color: #888; margin: 4px 0;">
+			- {{$target.Name}}: <span style="color: #FF9800;">{{$target.TotalFailedChecks}} failed checks</span>
+			<span style="color: #666; font-size: 11px;">
+				{{if gt $target.FailedChecks 0}}({{$target.FailedChecks}} down{{end}}
+				{{if and (gt $target.FailedChecks 0) (gt $target.HighLatencyChecks 0)}}, {{end}}
+				{{if gt $target.HighLatencyChecks 0}}{{$target.HighLatencyChecks}} high latency{{end}}
+				{{if and (or (gt $target.FailedChecks 0) (gt $target.HighLatencyChecks 0)) (gt $target.PacketLossChecks 0)}}, {{end}}
+				{{if gt $target.PacketLossChecks 0}}{{$target.PacketLossChecks}} packet loss{{end}})
+			</span>
+		</div>
+		{{end}}
+		{{end}}
+	</div>
+	{{end}}
+</div>
+<div style="margin-bottom: 12px;">
+	<span style="color: #b0b0b0; font-size: 13px;">• Issues: </span>
+	<span style="color: #FF9800; font-weight: 600;">{{len .IssueTargets}} targets</span>
+</div>
+<div style="margin-bottom: 12px;">
+	<span style="color: #b0b0b0; font-size: 13px;">• Critical: </span>
+	<span style="color: #f44336; font-weight: 600;">{{len .CriticalTargets}} targets</span>
+</div>
+<div style="margin-bottom: 12px;">
+	<span style="color: #b0b0b0; font-size: 13px;">• Average Uptime: </span>
+	<span style="color: #4CAF50; font-weight: 600;">{{printf "%.2f" .AvgUptime}}%</span>
+</div>
+<div style="margin-bottom: 12px;">
+	<span style="color: #b0b0b0; font-size: 13px;">• Total Checks: </span>
+	<span style="color: #e0e0e0; font-weight: 600;">{{.TotalChecks}} ({{.SuccessfulChecks}} successful)</span>
+</div>
+<div style="margin-bottom: 0;">
+	<span style="color: #b0b0b0; font-size: 13px;">• Success Rate: </span>
+	<span style="color: #4CAF50; font-weight: 600;">{{printf "%.2f" .SuccessRate}}%</span>
+</div>
+</div>
+
 <h2>Monitored Targets ({{.TotalTargets}} total)</h2>
 <div class="status">
 {{range .Targets}}<div class="target-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #404040;">
@@ -334,7 +380,10 @@ pre {
 {{end}}
 </div>
 {{if .RecentIncidents}}
-<h2>Recent Incidents (Last {{.IncidentsHours}} hours)</h2>
+<h2>Incident Events (Last {{.IncidentsHours}} hours)</h2>
+<div style="background: #1e1e2e; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #569cd6;">
+	ℹ️ These are <strong>alert events</strong> (state changes that trigger notifications). See Failed Checks Statistics section for individual ping check failures.
+</div>
 
 {{if .IncidentsSummary}}
 {{if gt (index .IncidentsSummary "TotalIncidents") 0}}
@@ -404,6 +453,30 @@ pre {
 {{end}}
 </div>
 {{end}}
+
+<h2>Failed Checks Statistics (Last Report Period)</h2>
+<div style="background: #1e1e2e; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #569cd6;">
+	ℹ️ These are <strong>individual ping checks</strong> that exceeded thresholds. Multiple failed checks may occur during a single incident event.
+</div>
+<div class="status">
+{{range .Targets}}
+{{if or (gt .FailedChecks 0) (gt .HighLatencyChecks 0) (gt .PacketLossChecks 0)}}
+<div class="target-item" style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #404040;">
+<div style="flex: 1; min-width: 0;">
+<strong style="display: block; word-wrap: break-word; overflow-wrap: break-word;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
+<span style="color: #888; font-size: 12px; display: block; word-wrap: break-word; overflow-wrap: break-word;">{{.Label}}: {{.Address}}</span>
+<div style="margin-top: 6px; font-size: 11px; color: #aaa;">
+{{if gt .FailedChecks 0}}<div style="color: #f44336;">🔴 {{.FailedChecks}} down checks</div>{{end}}
+{{if gt .HighLatencyChecks 0}}<div style="color: #FF9800;">⚠️ {{.HighLatencyChecks}} high latency checks</div>{{end}}
+{{if gt .PacketLossChecks 0}}<div style="color: #FFC107;">📶 {{.PacketLossChecks}} packet loss checks</div>{{end}}
+<div style="color: #569cd6; margin-top: 4px;">Total: {{.TotalFailedChecks}} failed checks</div>
+</div>
+</div>
+</div>
+{{end}}
+{{end}}
+</div>
+
 <h2>Recent Logs (Last {{.LogCount}} entries)</h2>
 <div class="logs">
 {{if .Logs}}{{range .Logs}}<div class="log-entry"><span class="timestamp">{{.Timestamp}}</span> {{.Message}}</div>

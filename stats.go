@@ -413,6 +413,68 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	}
 	body.WriteString("\n")
 
+	// Add Recent Incidents Summary
+	incidents := pm.getRecentIncidents()
+	summary := pm.getIncidentsSummary(int(reportDuration.Hours()))
+	if summary["TotalIncidents"].(int) > 0 {
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours)\n", int(reportDuration.Hours())))
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("Total Alert Events: %d | ", summary["TotalIncidents"].(int)))
+		body.WriteString(fmt.Sprintf("Resolved: %d (%d%%) | ", 
+			summary["ResolvedCount"].(int), summary["ResolvedPercent"].(int)))
+		body.WriteString(fmt.Sprintf("Avg Resolution: %s\n", summary["AvgResolution"].(string)))
+		body.WriteString(fmt.Sprintf("  • Down Events: %d (avg resolution: %s)\n", 
+			summary["DowntimeCount"].(int), summary["AvgDowntimeResolution"].(string)))
+		body.WriteString(fmt.Sprintf("  • High Latency Events: %d (avg resolution: %s)\n", 
+			summary["HighLatencyCount"].(int), summary["AvgHighLatencyResolution"].(string)))
+		body.WriteString(fmt.Sprintf("  • Packet Loss Events: %d (avg resolution: %s)\n", 
+			summary["PacketLossCount"].(int), summary["AvgPacketLossResolution"].(string)))
+		
+		if summary["FirstIncident"].(string) != "" {
+			body.WriteString(fmt.Sprintf("First Event: %s\n", summary["FirstIncident"].(string)))
+			if summary["LastResolved"].(string) != "" {
+				body.WriteString(fmt.Sprintf("Last Resolved: %s\n", summary["LastResolved"].(string)))
+			}
+			if summary["TotalDuration"].(string) != "" {
+				body.WriteString(fmt.Sprintf("Total Downtime: %s\n", summary["TotalDuration"].(string)))
+			}
+		}
+		body.WriteString("\n")
+		
+		// Show top 5 most recent incidents
+		body.WriteString("Recent Alert Events:\n")
+		maxIncidents := 5
+		if len(incidents) < maxIncidents {
+			maxIncidents = len(incidents)
+		}
+		for i := 0; i < maxIncidents; i++ {
+			incident := incidents[i]
+			resolvedStr := ""
+			if incident.IsResolved {
+				if incident.Duration != "" {
+					resolvedStr = fmt.Sprintf(" [Resolved in %s]", incident.Duration)
+				} else {
+					resolvedStr = " [Resolved]"
+				}
+			} else {
+				resolvedStr = " [ONGOING]"
+			}
+			body.WriteString(fmt.Sprintf("  • [%s] %s - %s%s\n", 
+				incident.Timestamp, incident.TargetName, incident.Description, resolvedStr))
+		}
+		if len(incidents) > maxIncidents {
+			body.WriteString(fmt.Sprintf("  ... and %d more events\n", len(incidents)-maxIncidents))
+		}
+		body.WriteString("\n")
+	}
+
+	body.WriteString(strings.Repeat("━", 60) + "\n\n")
+	body.WriteString("📊 FAILED CHECKS STATISTICS (By Target)\n")
+	body.WriteString(strings.Repeat("━", 60) + "\n\n")
+	body.WriteString("This shows individual ping checks that exceeded thresholds.\n")
+	body.WriteString("Multiple failed checks may occur during a single incident event.\n\n")
+
 	if len(healthyTargets) > 0 {
 		pm.writeTargetDetails(body, "🟢 HEALTHY TARGETS (99%+ uptime)", healthyTargets)
 	}
@@ -457,7 +519,7 @@ func (pm *PingMonitor) writeTargetSummary(body *strings.Builder, label string, t
 					incidentBreakdown = " (" + strings.Join(incidentParts, ", ") + ")"
 				}
 				
-				body.WriteString(fmt.Sprintf("      - %s: %d incidents%s\n", report.Target.Name, report.TotalIssues, incidentBreakdown))
+				body.WriteString(fmt.Sprintf("      - %s: %d failed checks%s\n", report.Target.Name, report.TotalIssues, incidentBreakdown))
 				shown++
 			}
 			if shown == maxShow {
@@ -486,7 +548,7 @@ func (pm *PingMonitor) writeTargetSummary(body *strings.Builder, label string, t
 						incidentBreakdown = " (" + strings.Join(incidentParts, ", ") + ")"
 					}
 					
-					body.WriteString(fmt.Sprintf("      - %s: %d incidents%s\n", report.Target.Name, report.TotalIssues, incidentBreakdown))
+					body.WriteString(fmt.Sprintf("      - %s: %d failed checks%s\n", report.Target.Name, report.TotalIssues, incidentBreakdown))
 				}
 				if i == maxShow-1 && len(targets) > maxShow {
 					body.WriteString(fmt.Sprintf("      - (+%d more targets)\n", len(targets)-maxShow))
@@ -512,7 +574,7 @@ func (pm *PingMonitor) writeTargetDetails(body *strings.Builder, title string, t
 				report.AvgLatency, report.MinLatency, report.MaxLatency))
 		}
 		body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
-		body.WriteString(fmt.Sprintf("  ⚠️  Total Incidents: %d (%d high latency, %d packet loss, %d failed)\n", 
+		body.WriteString(fmt.Sprintf("  ⚠️  Failed Checks: %d total (%d high latency, %d packet loss, %d down)\n", 
 			report.TotalIssues, report.Stats.HighLatencyCount, report.Stats.PacketLossEvents, report.Stats.FailedChecks))
 		
 		if len(report.Stats.RecentEvents) > 0 {
