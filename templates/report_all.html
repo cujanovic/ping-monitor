@@ -392,7 +392,7 @@ pre {
 </div>
 {{end}}
 
-<h2>📈 Overall Health</h2>
+<h2>📈 Overall Health ({{.StatsPeriod}}: {{.StatsStartTime}} - {{.StatsEndTime}})</h2>
 <div class="status">
 <div style="margin-bottom: 12px;">
 	<span style="color: #b0b0b0; font-size: 13px;">• All Up: </span>
@@ -438,7 +438,7 @@ pre {
 </div>
 </div>
 
-<h2>📊 Failed Checks Statistics (Last Report Period)</h2>
+<h2>📊 Failed Checks Statistics ({{.StatsPeriod}}: {{.StatsStartTime}} - {{.StatsEndTime}})</h2>
 <div style="background: #1e1e2e; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #569cd6;">
 	ℹ️ These are <strong>individual ping checks</strong> that exceeded thresholds. Multiple failed checks may occur during a single incident event.
 </div>

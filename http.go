@@ -161,6 +161,8 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
 	issueTargets := make([]TargetInfo, 0)
 	criticalTargets := make([]TargetInfo, 0)
+	statsPeriod := time.Since(pm.statsStartTime)
+	statsStartTime := pm.statsStartTime
 	
 	for i, target := range pm.config.Targets {
 		stats := pm.targetStats[target.TargetAddr]
@@ -225,6 +227,8 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
 	}
 	
+	now := pm.getReportTime()
+	
 	data := struct {
 		TargetCount      int
 		Uptime           string
@@ -252,12 +256,15 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsPeriod        string
+		StatsStartTime     string
+		StatsEndTime       string
 	}{
 		TargetCount:      len(pm.config.Targets),
 		Uptime:           formatDuration(uptime),
 		Interval:         pm.config.PingIntervalSeconds,
 		Schedule:         schedule,
-		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Timestamp:        now.Format("2006-01-02 15:04:05"),
 		Targets:          targets,
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
@@ -269,6 +276,9 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsPeriod:      formatDuration(statsPeriod),
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		StatsEndTime:     now.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
@@ -341,6 +351,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	downCount := len(pm.downTargets)
 	slowCount := len(pm.slowTargets)
 	packetLossCount := len(pm.packetLossTargets)
+	statsPeriod := time.Since(pm.statsStartTime)
+	statsStartTime := pm.statsStartTime
 	pm.mu.RUnlock()
 	
 	getClass := func(count int) string {
@@ -455,6 +467,8 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
 	}
 	
+	now := pm.getReportTime()
+	
 	data := struct {
 		DownCount          int
 		SlowCount          int
@@ -487,12 +501,15 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsPeriod        string
+		StatsStartTime     string
+		StatsEndTime       string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
 		PacketLossCount:  packetLossCount,
 		TotalTargets:     len(pm.config.Targets),
-		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Timestamp:        now.Format("2006-01-02 15:04:05"),
 		LogCount:         pm.config.HTTPLogLines,
 		Logs:             formattedLogs,
 		DownClass:        getClass(downCount),
@@ -509,6 +526,9 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsPeriod:      formatDuration(statsPeriod),
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		StatsEndTime:     now.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -527,6 +547,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	downCount := len(pm.downTargets)
 	slowCount := len(pm.slowTargets)
 	packetLossCount := len(pm.packetLossTargets)
+	statsPeriod := time.Since(pm.statsStartTime)
+	statsStartTime := pm.statsStartTime
 	pm.mu.RUnlock()
 	
 	pm.lastEmailReportMu.RLock()
@@ -660,6 +682,8 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		successRate = (float64(successfulChecks) / float64(totalChecks)) * 100
 	}
 	
+	now := pm.getReportTime()
+	
 	data := struct {
 		DownCount          int
 		SlowCount          int
@@ -696,12 +720,15 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsPeriod        string
+		StatsStartTime     string
+		StatsEndTime       string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
 		PacketLossCount:  packetLossCount,
 		TotalTargets:     len(pm.config.Targets),
-		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Timestamp:        now.Format("2006-01-02 15:04:05"),
 		LogCount:         pm.config.HTTPLogLines,
 		Logs:             formattedLogs,
 		DownClass:        getClass(downCount),
@@ -722,6 +749,9 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsPeriod:      formatDuration(statsPeriod),
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		StatsEndTime:     now.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {
