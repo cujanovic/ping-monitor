@@ -371,18 +371,10 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	log.Printf("📊 Summary report sent successfully")
 	pm.addLog("Summary report sent successfully")
 	
-	pm.mu.Lock()
-	pm.statsStartTime = time.Now()
-	// Reset stats counters but KEEP RecentEvents for web dashboard
-	for addr := range pm.targetStats {
-		oldEvents := pm.targetStats[addr].RecentEvents // Preserve events
-		pm.targetStats[addr] = &TargetStats{
-			MinLatency:   -1,
-			RecentEvents: oldEvents, // Keep the event history
-		}
-	}
-	pm.mu.Unlock()
-
+	// Note: We no longer reset stats here. Stats persist and are cleaned up based on the
+	// configured recent_incidents_hours period. This allows stats to cover the full
+	// configured time window (e.g., 24 hours) regardless of report frequency.
+	
 	return nil
 }
 

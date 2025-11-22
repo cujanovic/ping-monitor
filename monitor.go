@@ -289,6 +289,9 @@ func (pm *PingMonitor) Start() {
 	if pm.config.SummaryReportEnabled {
 		pm.startSummaryReportScheduler()
 	}
+	
+	// Start stats cleanup scheduler (runs every hour to clean up old data)
+	pm.startStatsCleanupScheduler()
 
 	// Start HTTP server if enabled
 	if pm.config.HTTPEnabled {
