@@ -391,35 +391,18 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	reportStart, now time.Time, targetCount int, healthyTargets, issueTargets, criticalTargets []TargetReport,
 	avgUptime float64, totalChecks, successfulChecks int64) {
 	
-	body.WriteString(fmt.Sprintf("📊 Ping Monitor %s Summary Report\n", strings.Title(schedule)))
-	body.WriteString(strings.Repeat("━", 60) + "\n\n")
 	body.WriteString(fmt.Sprintf("Report Period: %s (%s - %s)\n", 
 		formatDuration(reportDuration),
 		reportStart.Format("Jan 2 15:04"),
 		now.Format("Jan 2 15:04")))
 	body.WriteString(fmt.Sprintf("Total Targets Monitored: %d\n\n", targetCount))
-	
-	body.WriteString("📈 OVERALL HEALTH\n")
-	pm.writeTargetSummary(body, "All Up", healthyTargets, 3, true)
-	pm.writeTargetSummary(body, "Issues", issueTargets, 3, false)
-	pm.writeTargetSummary(body, "Critical", criticalTargets, 3, false)
-	
-	body.WriteString(fmt.Sprintf("  • Average Uptime: %.2f%%\n", avgUptime))
-	if totalChecks > 0 {
-		successRate := (float64(successfulChecks) / float64(totalChecks)) * 100
-		body.WriteString(fmt.Sprintf("  • Total Checks: %s (%s successful)\n", 
-			formatNumber(totalChecks), formatNumber(successfulChecks)))
-		body.WriteString(fmt.Sprintf("  • Success Rate: %.2f%%\n", successRate))
-	}
-	body.WriteString("\n")
 
-	// Add Recent Incidents Summary
+	// Add Recent Incidents Summary FIRST
 	incidents := pm.getRecentIncidents()
 	summary := pm.getIncidentsSummary(int(reportDuration.Hours()))
 	if summary["TotalIncidents"].(int) > 0 {
 		body.WriteString(strings.Repeat("━", 60) + "\n\n")
-		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours)\n", int(reportDuration.Hours())))
-		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours)\n\n", int(reportDuration.Hours())))
 		body.WriteString(fmt.Sprintf("Total Alert Events: %d | ", summary["TotalIncidents"].(int)))
 		body.WriteString(fmt.Sprintf("Resolved: %d (%d%%) | ", 
 			summary["ResolvedCount"].(int), summary["ResolvedPercent"].(int)))
@@ -468,21 +451,37 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 		}
 		body.WriteString("\n")
 	}
-
+	
+	// Overall Health SECOND
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
-	body.WriteString("📊 FAILED CHECKS STATISTICS (By Target)\n")
-	body.WriteString(strings.Repeat("━", 60) + "\n\n")
-	body.WriteString("This shows individual ping checks that exceeded thresholds.\n")
-	body.WriteString("Multiple failed checks may occur during a single incident event.\n\n")
+	body.WriteString("📈 OVERALL HEALTH\n\n")
+	pm.writeTargetSummary(body, "All Up", healthyTargets, 3, true)
+	pm.writeTargetSummary(body, "Issues", issueTargets, 3, false)
+	pm.writeTargetSummary(body, "Critical", criticalTargets, 3, false)
+	
+	body.WriteString(fmt.Sprintf("  • Average Uptime: %.2f%%\n", avgUptime))
+	if totalChecks > 0 {
+		successRate := (float64(successfulChecks) / float64(totalChecks)) * 100
+		body.WriteString(fmt.Sprintf("  • Total Checks: %s (%s successful)\n", 
+			formatNumber(totalChecks), formatNumber(successfulChecks)))
+		body.WriteString(fmt.Sprintf("  • Success Rate: %.2f%%\n", successRate))
+	}
+	body.WriteString("\n")
 
-	if len(healthyTargets) > 0 {
-		pm.writeTargetDetails(body, "🟢 HEALTHY TARGETS (99%+ uptime)", healthyTargets)
+	// Detailed target information - only show targets with issues or recent events
+	targetsWithDetails := []TargetReport{}
+	for _, report := range append(append(healthyTargets, issueTargets...), criticalTargets...) {
+		// Show target if it has failed checks OR recent events
+		if report.TotalIssues > 0 || len(report.Stats.RecentEvents) > 0 {
+			targetsWithDetails = append(targetsWithDetails, report)
+		}
 	}
-	if len(issueTargets) > 0 {
-		pm.writeTargetDetails(body, "🟡 TARGETS WITH ISSUES (95-99% uptime)", issueTargets)
-	}
-	if len(criticalTargets) > 0 {
-		pm.writeTargetDetails(body, "🔴 CRITICAL TARGETS (<95% uptime)", criticalTargets)
+	
+	if len(targetsWithDetails) > 0 {
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString("📊 DETAILED TARGET INFORMATION\n\n")
+		body.WriteString("Targets with failed checks or recent alert events:\n\n")
+		pm.writeDetailedTargets(body, targetsWithDetails)
 	}
 
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
@@ -584,6 +583,46 @@ func (pm *PingMonitor) writeTargetDetails(body *strings.Builder, title string, t
 				eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
 				body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
 					eventTime.Format("Jan 2 15:04:05"), formatEvent(event)))
+			}
+		}
+		body.WriteString("\n")
+	}
+}
+
+// writeDetailedTargets writes detailed information for targets (improved formatting)
+func (pm *PingMonitor) writeDetailedTargets(body *strings.Builder, targets []TargetReport) {
+	for _, report := range targets {
+		body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+		body.WriteString(fmt.Sprintf("  ✓ Uptime: %.2f%% (%s/%s checks)\n", 
+			report.Uptime, formatNumber(report.Stats.SuccessfulChecks), formatNumber(report.Stats.TotalChecks)))
+		if report.Stats.SuccessfulChecks > 0 {
+			body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
+				report.AvgLatency, report.MinLatency, report.MaxLatency))
+		}
+		body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
+		
+		// Only show failed checks line if there are any
+		if report.TotalIssues > 0 {
+			body.WriteString(fmt.Sprintf("  ⚠️  Failed Checks: %d total (%d high latency, %d packet loss, %d down)\n", 
+				report.TotalIssues, report.Stats.HighLatencyCount, report.Stats.PacketLossEvents, report.Stats.FailedChecks))
+		}
+		
+		// Show recent events (limited to last 20 to keep email size reasonable)
+		if len(report.Stats.RecentEvents) > 0 {
+			body.WriteString("  📋 Recent Events:\n")
+			maxEvents := 20
+			if len(report.Stats.RecentEvents) < maxEvents {
+				maxEvents = len(report.Stats.RecentEvents)
+			}
+			for i := 0; i < maxEvents; i++ {
+				event := report.Stats.RecentEvents[i]
+				// Apply time offset to event timestamps
+				eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+				body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
+					eventTime.Format("Jan 2 15:04:05"), formatEvent(event)))
+			}
+			if len(report.Stats.RecentEvents) > maxEvents {
+				body.WriteString(fmt.Sprintf("    ... and %d more events\n", len(report.Stats.RecentEvents)-maxEvents))
 			}
 		}
 		body.WriteString("\n")
