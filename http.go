@@ -161,6 +161,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
 	issueTargets := make([]TargetInfo, 0)
 	criticalTargets := make([]TargetInfo, 0)
+	statsStartTime := pm.statsStartTime
 	
 	for i, target := range pm.config.Targets {
 		stats := pm.targetStats[target.TargetAddr]
@@ -252,6 +253,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsStartTime     string
 	}{
 		TargetCount:      len(pm.config.Targets),
 		Uptime:           formatDuration(uptime),
@@ -269,6 +271,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
@@ -391,6 +394,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
 	issueTargets := make([]TargetInfo, 0)
 	criticalTargets := make([]TargetInfo, 0)
+	statsStartTime := pm.statsStartTime
 	
 	for i, target := range pm.config.Targets {
 		stats := pm.targetStats[target.TargetAddr]
@@ -487,6 +491,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsStartTime     string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -509,6 +514,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
@@ -596,6 +602,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	healthyTargets := make([]TargetInfo, 0, len(pm.config.Targets))
 	issueTargets := make([]TargetInfo, 0)
 	criticalTargets := make([]TargetInfo, 0)
+	statsStartTime := pm.statsStartTime
 	
 	for i, target := range pm.config.Targets {
 		stats := pm.targetStats[target.TargetAddr]
@@ -696,6 +703,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		TotalChecks        int64
 		SuccessfulChecks   int64
 		SuccessRate        float64
+		StatsStartTime     string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -722,6 +730,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		TotalChecks:      totalChecks,
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
+		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {

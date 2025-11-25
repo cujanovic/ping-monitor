@@ -393,7 +393,7 @@
 
 	<!-- Overall Health Statistics - SECOND -->
 	<div class="targets" style="margin-top: 30px; text-align: left;">
-		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">📈 Overall Health (Cumulative)</h2>
+		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">📈 Overall Health (since {{.StatsStartTime}})</h2>
 		<div style="background: #1e1e1e; border-radius: 10px; padding: 15px;">
 			<div style="margin-bottom: 12px;">
 				<span style="color: #b0b0b0; font-size: 13px;">• All Up: </span>
@@ -442,9 +442,9 @@
 
 	<!-- Failed Checks Statistics - THIRD -->
 	<div class="targets" style="margin-top: 30px; text-align: left;">
-		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">📊 Failed Checks Statistics (Last {{.IncidentsHours}} hours)</h2>
+		<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">📊 Failed Checks Statistics (since {{.StatsStartTime}})</h2>
 		<div style="background: #1e1e2e; padding: 10px 15px; margin-bottom: 15px; border-radius: 4px; font-size: 12px; color: #aaa; border-left: 3px solid #569cd6;">
-			ℹ️ These are <strong>individual ping checks</strong> that exceeded thresholds. Multiple failed checks may occur during a single incident event.
+			ℹ️ These are <strong>cumulative counts of individual ping checks</strong> that exceeded thresholds. Multiple failed checks may occur during a single incident event.
 		</div>
 		{{$hasFailedChecks := false}}
 		{{range .Targets}}
