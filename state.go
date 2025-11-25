@@ -201,44 +201,18 @@ func (pm *PingMonitor) loadState() error {
 	return nil
 }
 
-// cleanupOldStats removes statistics data that falls outside the configured time window
+// cleanupOldStats removes event data that falls outside the configured time window
+// Note: Stats counters (TotalChecks, SuccessfulChecks, etc.) are cumulative since
+// service start and are NOT time-windowed, as we cannot accurately recalculate them
+// from events alone (events only record failures, not successes).
 func (pm *PingMonitor) cleanupOldStats() {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
 	
-	// If statsStartTime is too old, we need to reset stats because all data is invalid
-	if pm.statsStartTime.Before(cutoffTime) {
-		log.Printf("⚠️  Stats data older than %d hours detected, resetting counters", pm.config.RecentIncidentsHours)
-		pm.statsStartTime = cutoffTime
-		
-		// Reset all statistics counters since they contain data outside the window
-		// We keep RecentEvents as they'll be cleaned below
-		for _, stats := range pm.targetStats {
-			if stats == nil {
-				continue
-			}
-			
-			// Keep events, but reset counters
-			oldEvents := stats.RecentEvents
-			stats.TotalChecks = 0
-			stats.SuccessfulChecks = 0
-			stats.FailedChecks = 0
-			stats.TotalLatency = 0
-			stats.MinLatency = -1
-			stats.MaxLatency = 0
-			stats.TotalPacketLoss = 0
-			stats.MaxPacketLoss = 0
-			stats.HighLatencyCount = 0
-			stats.PacketLossEvents = 0
-			stats.RecentEvents = oldEvents // Keep for cleaning below
-		}
-		
-		log.Printf("🧹 Stats counters reset, start time adjusted to: %s", pm.statsStartTime.Format("2006-01-02 15:04:05"))
-	}
-	
-	// Clean up old events
+	// Clean up old events only - do NOT reset counters
+	// Counters represent cumulative stats since service start
 	cleanedTargets := 0
 	for _, stats := range pm.targetStats {
 		if stats == nil || len(stats.RecentEvents) == 0 {

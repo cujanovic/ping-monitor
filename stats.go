@@ -446,7 +446,7 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	
 	// Overall Health SECOND
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
-	body.WriteString("📈 OVERALL HEALTH\n\n")
+	body.WriteString("📈 OVERALL HEALTH (Cumulative)\n\n")
 	pm.writeTargetSummary(body, "All Up", healthyTargets, 3, true)
 	pm.writeTargetSummary(body, "Issues", issueTargets, 3, false)
 	pm.writeTargetSummary(body, "Critical", criticalTargets, 3, false)
