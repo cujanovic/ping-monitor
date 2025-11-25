@@ -254,6 +254,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks   int64
 		SuccessRate        float64
 		StatsStartTime     string
+		ServiceStartTime   string
 	}{
 		TargetCount:      len(pm.config.Targets),
 		Uptime:           formatDuration(uptime),
@@ -272,6 +273,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
 		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		ServiceStartTime: pm.serviceStartTime.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
@@ -492,6 +494,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks   int64
 		SuccessRate        float64
 		StatsStartTime     string
+		ServiceStartTime   string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -515,9 +518,10 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
 		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		ServiceStartTime: pm.serviceStartTime.Format("Jan 2 15:04"),
 	}
 	
-	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil {
+	if err := pm.templates.ExecuteTemplate(w, "report_now.html", data); err != nil{
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		log.Printf("⚠️  Template error: %v", err)
 	}
@@ -704,6 +708,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks   int64
 		SuccessRate        float64
 		StatsStartTime     string
+		ServiceStartTime   string
 	}{
 		DownCount:        downCount,
 		SlowCount:        slowCount,
@@ -731,6 +736,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		SuccessfulChecks: successfulChecks,
 		SuccessRate:      successRate,
 		StatsStartTime:   statsStartTime.Format("Jan 2 15:04"),
+		ServiceStartTime: pm.serviceStartTime.Format("Jan 2 15:04"),
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "report_all.html", data); err != nil {
