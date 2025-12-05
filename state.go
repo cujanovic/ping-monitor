@@ -58,14 +58,14 @@ func (pm *PingMonitor) saveState() error {
 		// Filter events within the time window
 		if len(stats.RecentEvents) > 0 {
 			validEvents := make([]EventRecord, 0, len(stats.RecentEvents))
-			for _, event := range stats.RecentEvents {
-				if event.Timestamp.After(cutoffTime) {
-					validEvents = append(validEvents, event)
-				}
+		for _, event := range stats.RecentEvents {
+			if event.Timestamp.After(cutoffTime) {
+				validEvents = append(validEvents, event)
 			}
-			
-			if len(validEvents) > 0 {
-				state.Events[addr] = validEvents
+		}
+		
+		if len(validEvents) > 0 {
+			state.Events[addr] = validEvents
 			}
 		}
 	}

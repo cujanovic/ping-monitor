@@ -374,7 +374,7 @@ func (pm *PingMonitor) sendSummaryReport() error {
 	// Note: We no longer reset stats here. Stats persist and are cleaned up based on the
 	// configured recent_incidents_hours period. This allows stats to cover the full
 	// configured time window (e.g., 24 hours) regardless of report frequency.
-	
+
 	return nil
 }
 
@@ -383,18 +383,17 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	reportStart, now time.Time, targetCount int, healthyTargets, issueTargets, criticalTargets []TargetReport,
 	avgUptime float64, totalChecks, successfulChecks int64) {
 	
-	body.WriteString(fmt.Sprintf("Report Period: %s (%s - %s)\n", 
-		formatDuration(reportDuration),
-		reportStart.Format("Jan 2 15:04"),
-		now.Format("Jan 2 15:04")))
+	body.WriteString(fmt.Sprintf("Report Generated: %s\n", now.Format("Jan 2, 2006 15:04")))
 	body.WriteString(fmt.Sprintf("Total Targets Monitored: %d\n\n", targetCount))
-
-	// Add Recent Incidents Summary FIRST
+	
+	// Add Recent Incidents Summary FIRST (uses same time window as web interface)
+	incidentsHours := pm.config.RecentIncidentsHours
 	incidents := pm.getRecentIncidents()
-	summary := pm.getIncidentsSummary(int(reportDuration.Hours()))
+	summary := pm.getIncidentsSummary(incidentsHours)
+	incidentsCutoff := now.Add(-time.Duration(incidentsHours) * time.Hour)
 	if summary["TotalIncidents"].(int) > 0 {
 		body.WriteString(strings.Repeat("━", 60) + "\n\n")
-		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours)\n\n", int(reportDuration.Hours())))
+		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours: since %s)\n\n", incidentsHours, incidentsCutoff.Format("Jan 2 15:04")))
 		body.WriteString(fmt.Sprintf("Total Alert Events: %d | ", summary["TotalIncidents"].(int)))
 		body.WriteString(fmt.Sprintf("Resolved: %d (%d%%) | ", 
 			summary["ResolvedCount"].(int), summary["ResolvedPercent"].(int)))
@@ -442,6 +441,11 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 			body.WriteString(fmt.Sprintf("  ... and %d more events\n", len(incidents)-maxIncidents))
 		}
 		body.WriteString("\n")
+	} else {
+		// No incidents - show section with all clear message (matches web interface)
+		body.WriteString(strings.Repeat("━", 60) + "\n\n")
+		body.WriteString(fmt.Sprintf("🚨 INCIDENT EVENTS (Last %d hours: since %s)\n\n", incidentsHours, incidentsCutoff.Format("Jan 2 15:04")))
+		body.WriteString("✅ All Clear! No incident events in the reporting period.\n\n")
 	}
 	
 	// Overall Health SECOND
@@ -461,20 +465,58 @@ func (pm *PingMonitor) buildReportBody(body *strings.Builder, schedule string, r
 	}
 	body.WriteString("\n")
 
-	// Detailed target information - only show targets with issues or recent events
-	targetsWithDetails := []TargetReport{}
-	for _, report := range append(append(healthyTargets, issueTargets...), criticalTargets...) {
-		// Show target if it has failed checks OR recent events
-		if report.TotalIssues > 0 || len(report.Stats.RecentEvents) > 0 {
-			targetsWithDetails = append(targetsWithDetails, report)
+	// Failed Checks Statistics - THIRD (matches web interface)
+	body.WriteString(strings.Repeat("━", 60) + "\n\n")
+	body.WriteString(fmt.Sprintf("📊 FAILED CHECKS STATISTICS (since %s)\n\n", 
+		pm.statsStartTime.Format("Jan 2 15:04")))
+	body.WriteString("Cumulative counts of individual ping checks that exceeded thresholds.\n")
+	body.WriteString("Multiple failed checks may occur during a single incident event.\n\n")
+	
+	// Collect all targets and filter to those with issues
+	allTargets := append(append(healthyTargets, issueTargets...), criticalTargets...)
+	targetsWithFailedChecks := []TargetReport{}
+	for _, report := range allTargets {
+		if report.TotalIssues > 0 {
+			targetsWithFailedChecks = append(targetsWithFailedChecks, report)
 		}
 	}
 	
-	if len(targetsWithDetails) > 0 {
+	if len(targetsWithFailedChecks) > 0 {
+		for _, report := range targetsWithFailedChecks {
+			body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+			body.WriteString(fmt.Sprintf("  ✓ Uptime: %.2f%% (%s/%s checks)\n", 
+				report.Uptime, formatNumber(report.Stats.SuccessfulChecks), formatNumber(report.Stats.TotalChecks)))
+			if report.Stats.SuccessfulChecks > 0 {
+				body.WriteString(fmt.Sprintf("  ⚡ Latency: %.2fms avg (%.2f-%.2fms)\n", 
+					report.AvgLatency, report.MinLatency, report.MaxLatency))
+			}
+			body.WriteString(fmt.Sprintf("  📶 Packet Loss: %.1f%% avg (max: %d%%)\n", report.AvgPacketLoss, report.Stats.MaxPacketLoss))
+			body.WriteString(fmt.Sprintf("  ⚠️  Failed Checks: %d total (%d high latency, %d packet loss, %d down)\n\n", 
+				report.TotalIssues, report.Stats.HighLatencyCount, report.Stats.PacketLossEvents, report.Stats.FailedChecks))
+		}
+	} else {
+		body.WriteString("✅ All Clear! No failed checks - all targets are performing within thresholds.\n\n")
+	}
+	
+	// Detailed events per target (filtered to RecentIncidentsHours window)
+	targetsWithRecentEvents := []TargetReport{}
+	for _, report := range allTargets {
+		// Count events within the time window
+		eventsInWindow := 0
+		for _, event := range report.Stats.RecentEvents {
+			if event.Timestamp.After(incidentsCutoff) {
+				eventsInWindow++
+			}
+		}
+		if eventsInWindow > 0 {
+			targetsWithRecentEvents = append(targetsWithRecentEvents, report)
+		}
+	}
+	
+	if len(targetsWithRecentEvents) > 0 {
 		body.WriteString(strings.Repeat("━", 60) + "\n\n")
-		body.WriteString("📊 DETAILED TARGET INFORMATION\n\n")
-		body.WriteString("Targets with failed checks or recent alert events:\n\n")
-		pm.writeDetailedTargets(body, targetsWithDetails)
+		body.WriteString(fmt.Sprintf("📋 RECENT EVENTS BY TARGET (Last %d hours)\n\n", incidentsHours))
+		pm.writeDetailedTargetEvents(body, targetsWithRecentEvents, incidentsCutoff)
 	}
 
 	body.WriteString(strings.Repeat("━", 60) + "\n\n")
@@ -617,6 +659,41 @@ func (pm *PingMonitor) writeDetailedTargets(body *strings.Builder, targets []Tar
 			if len(report.Stats.RecentEvents) > maxEvents {
 				body.WriteString(fmt.Sprintf("    ... and %d more events\n", len(report.Stats.RecentEvents)-maxEvents))
 			}
+		}
+		body.WriteString("\n")
+	}
+}
+
+// writeDetailedTargetEvents writes events for targets filtered by time window
+func (pm *PingMonitor) writeDetailedTargetEvents(body *strings.Builder, targets []TargetReport, cutoffTime time.Time) {
+	for _, report := range targets {
+		// Count events in window
+		eventsInWindow := []EventRecord{}
+		for _, event := range report.Stats.RecentEvents {
+			if event.Timestamp.After(cutoffTime) {
+				eventsInWindow = append(eventsInWindow, event)
+			}
+		}
+		
+		if len(eventsInWindow) == 0 {
+			continue
+		}
+		
+		body.WriteString(fmt.Sprintf("%s (%s)\n", report.Target.Name, report.Target.TargetAddr))
+		body.WriteString("  📋 Events:\n")
+		
+		maxEvents := 20
+		if len(eventsInWindow) < maxEvents {
+			maxEvents = len(eventsInWindow)
+		}
+		for i := 0; i < maxEvents; i++ {
+			event := eventsInWindow[i]
+			eventTime := event.Timestamp.Add(time.Duration(pm.config.ReportTimeOffsetHours) * time.Hour)
+			body.WriteString(fmt.Sprintf("    • [%s] %s\n", 
+				eventTime.Format("Jan 2 15:04:05"), formatEvent(event)))
+		}
+		if len(eventsInWindow) > maxEvents {
+			body.WriteString(fmt.Sprintf("    ... and %d more events\n", len(eventsInWindow)-maxEvents))
 		}
 		body.WriteString("\n")
 	}
