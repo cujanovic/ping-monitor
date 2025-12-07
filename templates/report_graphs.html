@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Ping Monitor - Latency Graphs</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+	<style>
+		html {
+			background: #181d36;
+		}
+		body {
+			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+			background-attachment: fixed;
+			margin: 0;
+			padding: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: flex-start;
+			justify-content: center;
+		}
+		.container {
+			background: #2d2d2d;
+			border-radius: 20px;
+			box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+			padding: 40px;
+			text-align: center;
+			max-width: 1200px;
+			width: calc(100% - 40px);
+			margin: 20px;
+		}
+		h1 {
+			color: #e0e0e0;
+			font-size: 32px;
+			margin: 0 0 10px 0;
+			font-weight: 700;
+		}
+		.emoji {
+			font-size: 48px;
+			margin-bottom: 10px;
+		}
+		.subtitle {
+			color: #b0b0b0;
+			font-size: 16px;
+			margin-bottom: 30px;
+		}
+		.controls {
+			background: #1e1e1e;
+			border-radius: 10px;
+			padding: 20px;
+			margin-bottom: 30px;
+			display: flex;
+			gap: 20px;
+			flex-wrap: wrap;
+			justify-content: center;
+			align-items: center;
+		}
+		.control-group {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+		.control-group label {
+			color: #b0b0b0;
+			font-size: 14px;
+		}
+		select, button {
+			background: #2d2d2d;
+			border: 1px solid #404040;
+			border-radius: 8px;
+			padding: 10px 15px;
+			color: #e0e0e0;
+			font-family: inherit;
+			font-size: 14px;
+			cursor: pointer;
+		}
+		select:hover, button:hover {
+			border-color: #667eea;
+		}
+		button {
+			background: #667eea;
+			border: none;
+		}
+		button:hover {
+			background: #5a6fd6;
+		}
+		.chart-container {
+			background: #1e1e1e;
+			border-radius: 10px;
+			padding: 20px;
+			margin-bottom: 20px;
+			position: relative;
+			height: 400px;
+		}
+		.chart-title {
+			color: #e0e0e0;
+			font-size: 18px;
+			font-weight: 600;
+			margin-bottom: 15px;
+			text-align: left;
+		}
+		.stats-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+			gap: 15px;
+			margin-bottom: 30px;
+		}
+		.stat-card {
+			background: #1e1e1e;
+			border-radius: 10px;
+			padding: 20px;
+			text-align: center;
+		}
+		.stat-value {
+			color: #667eea;
+			font-size: 28px;
+			font-weight: 700;
+		}
+		.stat-label {
+			color: #b0b0b0;
+			font-size: 12px;
+			margin-top: 5px;
+		}
+		.btn {
+			display: inline-block;
+			padding: 12px 25px;
+			margin: 10px 5px;
+			border-radius: 10px;
+			text-decoration: none;
+			font-weight: 600;
+			transition: transform 0.2s, box-shadow 0.2s;
+			font-size: 14px;
+		}
+		.btn:hover {
+			transform: translateY(-2px);
+			box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+		}
+		.btn-primary {
+			background: #667eea;
+			color: white;
+		}
+		.btn-secondary {
+			background: #48bb78;
+			color: white;
+		}
+		.btn-back {
+			background: #4a5568;
+			color: white;
+		}
+		.loading {
+			color: #b0b0b0;
+			padding: 40px;
+		}
+		.target-legend {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 10px;
+			justify-content: center;
+			margin-top: 15px;
+		}
+		.legend-item {
+			display: flex;
+			align-items: center;
+			gap: 5px;
+			font-size: 12px;
+			color: #b0b0b0;
+		}
+		.legend-color {
+			width: 12px;
+			height: 12px;
+			border-radius: 3px;
+		}
+		.version {
+			color: #999;
+			font-size: 12px;
+			margin-top: 30px;
+		}
+		.info-box {
+			background: rgba(102, 126, 234, 0.1);
+			border: 1px solid rgba(102, 126, 234, 0.3);
+			border-radius: 8px;
+			padding: 12px 16px;
+			margin-bottom: 20px;
+			text-align: left;
+			color: #b0b0b0;
+			font-size: 13px;
+		}
+		.info-box .icon {
+			margin-right: 8px;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="emoji">📈</div>
+		<h1>Latency Graphs</h1>
+		<p class="subtitle">Real-time latency visualization for all targets</p>
+		
+		<div class="controls">
+			<div class="control-group">
+				<label>Time Range:</label>
+				<select id="hoursSelect">
+					<option value="1">Last 1 hour</option>
+					<option value="3">Last 3 hours</option>
+					<option value="6">Last 6 hours</option>
+					<option value="12">Last 12 hours</option>
+					<option value="24" selected>Last 24 hours</option>
+				</select>
+			</div>
+			<div class="control-group">
+				<label>Target:</label>
+				<select id="targetSelect">
+					<option value="all">All Targets</option>
+					{{range .Targets}}
+					<option value="{{.Address}}">{{.Name}}</option>
+					{{end}}
+				</select>
+			</div>
+			<button onclick="refreshData()">🔄 Refresh</button>
+		</div>
+		
+		<div class="stats-grid" id="statsGrid">
+			<div class="stat-card">
+				<div class="stat-value" id="avgLatency">--</div>
+				<div class="stat-label">Average Latency (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="maxLatency">--</div>
+				<div class="stat-label">Max Latency (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="minLatency">--</div>
+				<div class="stat-label">Min Latency (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="dataPoints">--</div>
+				<div class="stat-label">Data Points</div>
+			</div>
+		</div>
+		
+		<div id="noDataMessage" style="display: none; background: #1e1e1e; border-radius: 10px; padding: 40px; margin-bottom: 20px; text-align: center;">
+			<div style="font-size: 48px; margin-bottom: 15px;">📭</div>
+			<div style="color: #e0e0e0; font-size: 18px; margin-bottom: 10px;">No Data Yet</div>
+			<div style="color: #b0b0b0; font-size: 14px;">Latency data will appear here after a few ping cycles. Check back in a moment!</div>
+		</div>
+		
+		<div class="chart-container" id="latencyChartContainer">
+			<div class="chart-title">📊 Latency Over Time</div>
+			<canvas id="latencyChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="packetLossChartContainer">
+			<div class="chart-title">📉 Packet Loss Over Time</div>
+			<canvas id="packetLossChart"></canvas>
+		</div>
+		
+		<div class="info-box">
+			<span class="icon">ℹ️</span>
+			Data is collected every {{.Interval}} seconds. Graphs show up to 24 hours of historical data.
+			Service running since {{.ServiceStartTime}}.
+		</div>
+		
+		<div>
+			<a href="/" class="btn btn-back">← Home</a>
+			<a href="/report_now" class="btn btn-primary">Current State</a>
+			<a href="/report_all" class="btn btn-secondary">Full Reports</a>
+		</div>
+		
+		<div class="version">Ping Monitor v1.0 | {{.Timestamp}}</div>
+	</div>
+	
+	<script>
+		// Chart.js colors palette
+		const colors = [
+			'#667eea', '#48bb78', '#ed8936', '#e53e3e', '#38b2ac',
+			'#9f7aea', '#f56565', '#4fd1c5', '#fc8181', '#68d391',
+			'#f6ad55', '#63b3ed', '#b794f4', '#fbb6ce', '#81e6d9'
+		];
+		
+		let latencyChart = null;
+		let packetLossChart = null;
+		let cachedData = null;
+		
+		async function fetchData() {
+			const hours = document.getElementById('hoursSelect').value;
+			try {
+				const response = await fetch(`/api/latency-history?hours=${hours}`);
+				cachedData = await response.json();
+				return cachedData;
+			} catch (error) {
+				console.error('Failed to fetch data:', error);
+				return null;
+			}
+		}
+		
+		function updateStats(data) {
+			const selectedTarget = document.getElementById('targetSelect').value;
+			let allPoints = [];
+			
+			data.targets.forEach(target => {
+				if (selectedTarget === 'all' || selectedTarget === target.address) {
+					allPoints = allPoints.concat(target.points.filter(p => p.success));
+				}
+			});
+			
+			if (allPoints.length > 0) {
+				const latencies = allPoints.map(p => p.latency_ms);
+				document.getElementById('avgLatency').textContent = (latencies.reduce((a, b) => a + b, 0) / latencies.length).toFixed(2);
+				document.getElementById('maxLatency').textContent = Math.max(...latencies).toFixed(2);
+				document.getElementById('minLatency').textContent = Math.min(...latencies).toFixed(2);
+				document.getElementById('dataPoints').textContent = allPoints.length.toLocaleString();
+			} else {
+				document.getElementById('avgLatency').textContent = '--';
+				document.getElementById('maxLatency').textContent = '--';
+				document.getElementById('minLatency').textContent = '--';
+				document.getElementById('dataPoints').textContent = '0';
+			}
+		}
+		
+		function updateCharts(data) {
+			const selectedTarget = document.getElementById('targetSelect').value;
+			const ctx1 = document.getElementById('latencyChart').getContext('2d');
+			const ctx2 = document.getElementById('packetLossChart').getContext('2d');
+			
+			// Destroy existing charts
+			if (latencyChart) latencyChart.destroy();
+			if (packetLossChart) packetLossChart.destroy();
+			
+			// Check if there's any data
+			let totalPoints = 0;
+			data.targets.forEach(target => {
+				if (selectedTarget === 'all' || selectedTarget === target.address) {
+					totalPoints += target.points.length;
+				}
+			});
+			
+			// Show/hide no data message
+			const noDataMsg = document.getElementById('noDataMessage');
+			const latencyContainer = document.getElementById('latencyChartContainer');
+			const packetLossContainer = document.getElementById('packetLossChartContainer');
+			
+			if (totalPoints === 0) {
+				noDataMsg.style.display = 'block';
+				latencyContainer.style.display = 'none';
+				packetLossContainer.style.display = 'none';
+				updateStats(data);
+				return;
+			} else {
+				noDataMsg.style.display = 'none';
+				latencyContainer.style.display = 'block';
+				packetLossContainer.style.display = 'block';
+			}
+			
+			// Prepare datasets
+			const latencyDatasets = [];
+			const packetLossDatasets = [];
+			
+			data.targets.forEach((target, index) => {
+				if (selectedTarget !== 'all' && selectedTarget !== target.address) {
+					return;
+				}
+				
+				const color = colors[index % colors.length];
+				
+				// Latency dataset
+				latencyDatasets.push({
+					label: target.name,
+					data: target.points.filter(p => p.success).map(p => ({
+						x: new Date(p.timestamp),
+						y: p.latency_ms
+					})),
+					borderColor: color,
+					backgroundColor: color + '20',
+					borderWidth: 2,
+					pointRadius: 0,
+					pointHoverRadius: 4,
+					fill: false,
+					tension: 0.3
+				});
+				
+				// Packet loss dataset
+				packetLossDatasets.push({
+					label: target.name,
+					data: target.points.map(p => ({
+						x: new Date(p.timestamp),
+						y: p.packet_loss
+					})),
+					borderColor: color,
+					backgroundColor: color + '40',
+					borderWidth: 2,
+					pointRadius: 0,
+					pointHoverRadius: 4,
+					fill: true,
+					tension: 0.3
+				});
+			});
+			
+			const chartOptions = {
+				responsive: true,
+				maintainAspectRatio: false,
+				interaction: {
+					intersect: false,
+					mode: 'index'
+				},
+				plugins: {
+					legend: {
+						display: selectedTarget === 'all',
+						position: 'bottom',
+						labels: {
+							color: '#b0b0b0',
+							font: { family: "'SF Mono', Monaco, 'Courier New', monospace", size: 11 },
+							boxWidth: 12,
+							padding: 15
+						}
+					},
+					tooltip: {
+						backgroundColor: '#1e1e1e',
+						titleColor: '#e0e0e0',
+						bodyColor: '#b0b0b0',
+						borderColor: '#404040',
+						borderWidth: 1,
+						padding: 12,
+						callbacks: {
+							title: function(items) {
+								return new Date(items[0].parsed.x).toLocaleString();
+							}
+						}
+					}
+				},
+				scales: {
+					x: {
+						type: 'time',
+						time: {
+							displayFormats: {
+								hour: 'HH:mm',
+								day: 'MMM d'
+							}
+						},
+						grid: { color: '#404040' },
+						ticks: { color: '#b0b0b0', font: { size: 10 } }
+					},
+					y: {
+						beginAtZero: true,
+						grid: { color: '#404040' },
+						ticks: { color: '#b0b0b0', font: { size: 10 } }
+					}
+				}
+			};
+			
+			// Create latency chart
+			latencyChart = new Chart(ctx1, {
+				type: 'line',
+				data: { datasets: latencyDatasets },
+				options: {
+					...chartOptions,
+					scales: {
+						...chartOptions.scales,
+						y: {
+							...chartOptions.scales.y,
+							title: { display: true, text: 'Latency (ms)', color: '#b0b0b0' }
+						}
+					}
+				}
+			});
+			
+			// Create packet loss chart
+			packetLossChart = new Chart(ctx2, {
+				type: 'line',
+				data: { datasets: packetLossDatasets },
+				options: {
+					...chartOptions,
+					scales: {
+						...chartOptions.scales,
+						y: {
+							...chartOptions.scales.y,
+							max: 100,
+							title: { display: true, text: 'Packet Loss (%)', color: '#b0b0b0' }
+						}
+					}
+				}
+			});
+			
+			updateStats(data);
+		}
+		
+		async function refreshData() {
+			const data = await fetchData();
+			if (data) {
+				updateCharts(data);
+			}
+		}
+		
+		// Event listeners
+		document.getElementById('hoursSelect').addEventListener('change', refreshData);
+		document.getElementById('targetSelect').addEventListener('change', () => {
+			if (cachedData) {
+				updateCharts(cachedData);
+			}
+		});
+		
+		// Initial load
+		refreshData();
+		
+		// Auto-refresh every 60 seconds
+		setInterval(refreshData, 60000);
+	</script>
+</body>
+</html>
+
