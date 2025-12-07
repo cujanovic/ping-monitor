@@ -9,6 +9,39 @@ let latencyChart = null;
 let packetLossChart = null;
 let cachedData = null;
 
+// Check if target matches current filter (search + dropdown)
+function targetMatchesFilter(target) {
+	const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+	const selectedTarget = document.getElementById('targetSelect').value;
+	
+	// If specific target selected in dropdown, only show that one
+	if (selectedTarget !== 'all') {
+		return target.address === selectedTarget;
+	}
+	
+	// If search term exists, filter by it
+	if (searchTerm) {
+		return target.name.toLowerCase().includes(searchTerm) || 
+		       target.address.toLowerCase().includes(searchTerm);
+	}
+	
+	// No filter - show all
+	return true;
+}
+
+// Update match info display
+function updateMatchInfo(matchCount, totalCount) {
+	const matchInfo = document.getElementById('matchInfo');
+	const searchTerm = document.getElementById('searchInput').value.trim();
+	
+	if (searchTerm) {
+		matchInfo.style.display = 'block';
+		matchInfo.textContent = 'Showing ' + matchCount + ' of ' + totalCount + ' targets matching "' + searchTerm + '"';
+	} else {
+		matchInfo.style.display = 'none';
+	}
+}
+
 async function fetchData() {
 	const hours = document.getElementById('hoursSelect').value;
 	try {
@@ -22,11 +55,10 @@ async function fetchData() {
 }
 
 function updateStats(data) {
-	const selectedTarget = document.getElementById('targetSelect').value;
 	let allPoints = [];
 	
 	data.targets.forEach(function(target) {
-		if (selectedTarget === 'all' || selectedTarget === target.address) {
+		if (targetMatchesFilter(target)) {
 			allPoints = allPoints.concat(target.points.filter(function(p) { return p.success; }));
 		}
 	});
@@ -47,7 +79,6 @@ function updateStats(data) {
 }
 
 function updateCharts(data) {
-	const selectedTarget = document.getElementById('targetSelect').value;
 	const ctx1 = document.getElementById('latencyChart').getContext('2d');
 	const ctx2 = document.getElementById('packetLossChart').getContext('2d');
 	
@@ -55,13 +86,18 @@ function updateCharts(data) {
 	if (latencyChart) latencyChart.destroy();
 	if (packetLossChart) packetLossChart.destroy();
 	
-	// Check if there's any data
+	// Check if there's any data and count matches
 	let totalPoints = 0;
+	let matchCount = 0;
 	data.targets.forEach(function(target) {
-		if (selectedTarget === 'all' || selectedTarget === target.address) {
+		if (targetMatchesFilter(target)) {
 			totalPoints += target.points.length;
+			matchCount++;
 		}
 	});
+	
+	// Update match info
+	updateMatchInfo(matchCount, data.targets.length);
 	
 	// Show/hide no data message
 	const noDataMsg = document.getElementById('noDataMessage');
@@ -85,7 +121,7 @@ function updateCharts(data) {
 	const packetLossDatasets = [];
 	
 	data.targets.forEach(function(target, index) {
-		if (selectedTarget !== 'all' && selectedTarget !== target.address) {
+		if (!targetMatchesFilter(target)) {
 			return;
 		}
 		
@@ -131,7 +167,7 @@ function updateCharts(data) {
 		},
 		plugins: {
 			legend: {
-				display: selectedTarget === 'all',
+				display: matchCount > 1,
 				position: 'bottom',
 				labels: {
 					color: '#b0b0b0',
@@ -216,11 +252,39 @@ document.addEventListener('DOMContentLoaded', function() {
 	// Event listeners
 	document.getElementById('hoursSelect').addEventListener('change', refreshData);
 	document.getElementById('targetSelect').addEventListener('change', function() {
+		// Clear search when selecting specific target
+		if (this.value !== 'all') {
+			document.getElementById('searchInput').value = '';
+		}
 		if (cachedData) {
 			updateCharts(cachedData);
 		}
 	});
 	document.getElementById('refreshBtn').addEventListener('click', refreshData);
+	
+	// Search input - debounced
+	var searchTimeout = null;
+	document.getElementById('searchInput').addEventListener('input', function() {
+		// Reset dropdown to "All" when searching
+		document.getElementById('targetSelect').value = 'all';
+		
+		// Debounce search
+		clearTimeout(searchTimeout);
+		searchTimeout = setTimeout(function() {
+			if (cachedData) {
+				updateCharts(cachedData);
+			}
+		}, 300);
+	});
+	
+	// Clear button
+	document.getElementById('clearBtn').addEventListener('click', function() {
+		document.getElementById('searchInput').value = '';
+		document.getElementById('targetSelect').value = 'all';
+		if (cachedData) {
+			updateCharts(cachedData);
+		}
+	});
 	
 	// Initial load
 	refreshData();
