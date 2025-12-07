@@ -322,6 +322,51 @@ func (pm *PingMonitor) handleStaticFavicon(w http.ResponseWriter, r *http.Reques
 	w.Write(faviconContent)
 }
 
+// handleStaticChartJS serves the Chart.js library
+func (pm *PingMonitor) handleStaticChartJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+	
+	content, err := os.ReadFile("templates/chart.min.js")
+	if err != nil {
+		http.Error(w, "Chart.js not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read chart.min.js: %v", err)
+		return
+	}
+	
+	w.Write(content)
+}
+
+// handleStaticChartAdapter serves the Chart.js date adapter
+func (pm *PingMonitor) handleStaticChartAdapter(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
+	
+	content, err := os.ReadFile("templates/chartjs-adapter-date-fns.min.js")
+	if err != nil {
+		http.Error(w, "Chart adapter not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read chartjs-adapter-date-fns.min.js: %v", err)
+		return
+	}
+	
+	w.Write(content)
+}
+
+// handleStaticGraphsJS serves the graphs page JavaScript
+func (pm *PingMonitor) handleStaticGraphsJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	
+	content, err := os.ReadFile("templates/graphs.js")
+	if err != nil {
+		http.Error(w, "Graphs JS not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read graphs.js: %v", err)
+		return
+	}
+	
+	w.Write(content)
+}
+
 // handleReports handles the reports page
 func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -874,6 +919,9 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/logout", securityHeadersMiddleware(pm.handleLogout))
 	http.HandleFunc("/static/app.js", securityHeadersMiddleware(pm.handleStaticJS))
 	http.HandleFunc("/static/favicon.svg", securityHeadersMiddleware(pm.handleStaticFavicon))
+	http.HandleFunc("/static/chart.min.js", securityHeadersMiddleware(pm.handleStaticChartJS))
+	http.HandleFunc("/static/chartjs-adapter-date-fns.min.js", securityHeadersMiddleware(pm.handleStaticChartAdapter))
+	http.HandleFunc("/static/graphs.js", securityHeadersMiddleware(pm.handleStaticGraphsJS))
 	
 	// Protected routes (require auth if enabled, with security headers)
 	http.HandleFunc("/", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot))))
