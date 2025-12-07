@@ -234,12 +234,24 @@
 				<div class="stat-label">Average Latency (ms)</div>
 			</div>
 			<div class="stat-card">
-				<div class="stat-value" id="maxLatency">--</div>
-				<div class="stat-label">Max Latency (ms)</div>
+				<div class="stat-value" id="p50Latency">--</div>
+				<div class="stat-label">P50 Latency (ms)</div>
 			</div>
 			<div class="stat-card">
-				<div class="stat-value" id="minLatency">--</div>
-				<div class="stat-label">Min Latency (ms)</div>
+				<div class="stat-value" id="p95Latency">--</div>
+				<div class="stat-label">P95 Latency (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="p99Latency">--</div>
+				<div class="stat-label">P99 Latency (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="jitter">--</div>
+				<div class="stat-label">Jitter (ms)</div>
+			</div>
+			<div class="stat-card">
+				<div class="stat-value" id="successRate">--</div>
+				<div class="stat-label">Success Rate (%)</div>
 			</div>
 			<div class="stat-card">
 				<div class="stat-value" id="dataPoints">--</div>
@@ -261,6 +273,41 @@
 		<div class="chart-container" id="packetLossChartContainer">
 			<div class="chart-title">📉 Packet Loss Over Time</div>
 			<canvas id="packetLossChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="percentilesChartContainer">
+			<div class="chart-title">🎯 Latency Percentiles (P50/P90/P95/P99)</div>
+			<canvas id="percentilesChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="successRateChartContainer">
+			<div class="chart-title">✅ Success Rate Over Time</div>
+			<canvas id="successRateChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="distributionChartContainer" style="height: 300px;">
+			<div class="chart-title">📊 Latency Distribution</div>
+			<canvas id="distributionChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="jitterChartContainer">
+			<div class="chart-title">📈 Jitter (Latency Variance) Over Time</div>
+			<canvas id="jitterChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="hourlyPatternChartContainer" style="height: 300px;">
+			<div class="chart-title">⏰ Hourly Pattern (Average by Hour)</div>
+			<canvas id="hourlyPatternChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="comparisonChartContainer" style="height: 350px;">
+			<div class="chart-title">📊 Target Comparison</div>
+			<canvas id="comparisonChart"></canvas>
+		</div>
+		
+		<div class="chart-container" id="heatmapChartContainer" style="height: 400px;">
+			<div class="chart-title">🔥 Latency Heatmap (All Targets)</div>
+			<canvas id="heatmapChart"></canvas>
 		</div>
 		
 		<div class="info-box">
