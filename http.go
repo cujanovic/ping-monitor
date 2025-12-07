@@ -96,6 +96,7 @@ func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Content-Security-Policy", 
 			"default-src 'self'; "+
 			"script-src 'self'; "+
+			"script-src-elem 'self'; "+
 			"style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data:; "+
 			"font-src 'self'; "+
@@ -355,7 +356,7 @@ func (pm *PingMonitor) handleStaticChartAdapter(w http.ResponseWriter, r *http.R
 // handleStaticGraphsJS serves the graphs page JavaScript
 func (pm *PingMonitor) handleStaticGraphsJS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
+	w.Header().Set("Cache-Control", "no-cache") // Don't cache during development
 	
 	content, err := os.ReadFile("templates/graphs.js")
 	if err != nil {
