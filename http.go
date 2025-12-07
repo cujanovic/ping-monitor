@@ -95,7 +95,7 @@ func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Content Security Policy - allow scripts from same origin and Chart.js CDN
 		w.Header().Set("Content-Security-Policy", 
 			"default-src 'self'; "+
-			"script-src 'self' https://cdn.jsdelivr.net; "+
+			"script-src 'self'; "+
 			"style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data:; "+
 			"font-src 'self'; "+

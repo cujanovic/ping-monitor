@@ -220,6 +220,7 @@ document.addEventListener('DOMContentLoaded', function() {
 			updateCharts(cachedData);
 		}
 	});
+	document.getElementById('refreshBtn').addEventListener('click', refreshData);
 	
 	// Initial load
 	refreshData();
