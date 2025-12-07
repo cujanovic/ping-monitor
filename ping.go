@@ -57,7 +57,7 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	success := packetsRecv > 0
 	avgRttMs := float64(stats.AvgRtt) / float64(time.Millisecond)
 
-	// Store latest latency (only if valid)
+	// Store latest latency and history (only if valid)
 	pm.mu.Lock()
 	if success && avgRttMs > 0 {
 		pm.lastLatency[target.TargetAddr] = avgRttMs
@@ -65,6 +65,21 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 		// Log when we get a successful ping but 0 latency (rare edge case)
 		log.Printf("⚠️  %s: Successful ping but zero latency (packets recv: %d, sent: %d)", 
 			formatTargetInfo(target), packetsRecv, packetsSent)
+	}
+	
+	// Record latency point for graphs
+	point := LatencyPoint{
+		Timestamp:  time.Now(),
+		LatencyMs:  avgRttMs,
+		Success:    success,
+		PacketLoss: packetLossPercent,
+	}
+	pm.latencyHistory[target.TargetAddr] = append(pm.latencyHistory[target.TargetAddr], point)
+	
+	// Keep only last 24 hours of data (calculated based on interval)
+	maxPoints := (24 * 60 * 60) / pm.config.PingIntervalSeconds // ~4320 points at 20s interval
+	if len(pm.latencyHistory[target.TargetAddr]) > maxPoints {
+		pm.latencyHistory[target.TargetAddr] = pm.latencyHistory[target.TargetAddr][len(pm.latencyHistory[target.TargetAddr])-maxPoints:]
 	}
 	pm.mu.Unlock()
 

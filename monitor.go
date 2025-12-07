@@ -29,7 +29,8 @@ type PingMonitor struct {
 	targetStats        map[string]*TargetStats
 	statsStartTime     time.Time // Reset after each report for tracking report duration
 	serviceStartTime   time.Time // Never reset - actual service start time
-	lastLatency        map[string]float64 // Latest ping latency in ms
+	lastLatency        map[string]float64          // Latest ping latency in ms
+	latencyHistory     map[string][]LatencyPoint   // Historical latency data for graphs
 	lastEmailReport    string
 	lastEmailReportMu  sync.RWMutex
 	httpRateLimiter    *HTTPRateLimiter
@@ -221,6 +222,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		statsStartTime:     time.Now(),
 		serviceStartTime:   time.Now(),
 		lastLatency:        make(map[string]float64),
+		latencyHistory:     make(map[string][]LatencyPoint),
 		httpRateLimiter:    rateLimiter,
 		sessionManager:     sessionManager,
 		templates:          templates,

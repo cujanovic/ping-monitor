@@ -66,6 +66,7 @@ h1 {
 .card-primary { border-left-color: #667eea; }
 .card-secondary { border-left-color: #48bb78; }
 .card-tertiary { border-left-color: #4299e1; }
+.card-graphs { border-left-color: #ed8936; }
 .card-icon {
 	font-size: 32px;
 	margin-bottom: 15px;
@@ -147,6 +148,11 @@ h1 {
 <div class="card-icon">📊</div>
 <div class="card-title">Full Report</div>
 <div class="card-desc">Current state + last email report + all historical reports</div>
+</a>
+<a href="/reports/graphs" class="card card-graphs">
+<div class="card-icon">📈</div>
+<div class="card-title">Latency Graphs</div>
+<div class="card-desc">Visual charts showing latency and packet loss over time</div>
 </a>
 </div>
 <div class="footer">Generated: {{.Timestamp}}</div>

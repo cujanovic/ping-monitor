@@ -5,6 +5,14 @@ import (
 	"time"
 )
 
+// LatencyPoint records a single ping result for graphing
+type LatencyPoint struct {
+	Timestamp  time.Time `json:"timestamp"`
+	LatencyMs  float64   `json:"latency_ms"`
+	Success    bool      `json:"success"`
+	PacketLoss int       `json:"packet_loss"`
+}
+
 // EventRecord tracks a single event occurrence
 type EventRecord struct {
 	Timestamp time.Time

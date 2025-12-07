@@ -10,10 +10,11 @@ import (
 
 // StateFile represents the persisted state
 type StateFile struct {
-	LastSaved      time.Time                `json:"last_saved"`
-	Events         map[string][]EventRecord `json:"events"`          // key: target address
-	TargetStats    map[string]*TargetStats  `json:"target_stats"`    // key: target address
-	StatsStartTime time.Time                `json:"stats_start_time"` // When stats collection started
+	LastSaved      time.Time                  `json:"last_saved"`
+	Events         map[string][]EventRecord   `json:"events"`           // key: target address
+	TargetStats    map[string]*TargetStats    `json:"target_stats"`     // key: target address
+	StatsStartTime time.Time                  `json:"stats_start_time"` // When stats collection started
+	LatencyHistory map[string][]LatencyPoint  `json:"latency_history"`  // key: target address, for graphs
 }
 
 // saveState saves the current incidents to disk
@@ -30,9 +31,11 @@ func (pm *PingMonitor) saveState() error {
 		Events:         make(map[string][]EventRecord),
 		TargetStats:    make(map[string]*TargetStats),
 		StatsStartTime: pm.statsStartTime,
+		LatencyHistory: make(map[string][]LatencyPoint),
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
+	latencyCutoff := time.Now().Add(-24 * time.Hour) // Keep 24h of latency data
 	
 	for addr, stats := range pm.targetStats {
 		if stats == nil {
@@ -67,6 +70,19 @@ func (pm *PingMonitor) saveState() error {
 		if len(validEvents) > 0 {
 			state.Events[addr] = validEvents
 			}
+		}
+	}
+	
+	// Save latency history (last 24h)
+	for addr, points := range pm.latencyHistory {
+		validPoints := make([]LatencyPoint, 0, len(points))
+		for _, point := range points {
+			if point.Timestamp.After(latencyCutoff) {
+				validPoints = append(validPoints, point)
+			}
+		}
+		if len(validPoints) > 0 {
+			state.LatencyHistory[addr] = validPoints
 		}
 	}
 	
@@ -195,8 +211,29 @@ func (pm *PingMonitor) loadState() error {
 		}
 	}
 
-	log.Printf("💾 Restored %d events and %d target stats from state file (saved: %s)", 
-		restoredEventsCount, restoredStatsCount, state.LastSaved.Format("2006-01-02 15:04:05"))
+	// Restore latency history
+	restoredLatencyPoints := 0
+	latencyCutoff := time.Now().Add(-24 * time.Hour)
+	for addr, points := range state.LatencyHistory {
+		// Only restore if target still exists
+		if _, exists := pm.targetStats[addr]; !exists {
+			continue
+		}
+		
+		validPoints := make([]LatencyPoint, 0, len(points))
+		for _, point := range points {
+			if point.Timestamp.After(latencyCutoff) {
+				validPoints = append(validPoints, point)
+				restoredLatencyPoints++
+			}
+		}
+		if len(validPoints) > 0 {
+			pm.latencyHistory[addr] = validPoints
+		}
+	}
+
+	log.Printf("💾 Restored %d events, %d target stats, and %d latency points from state file (saved: %s)", 
+		restoredEventsCount, restoredStatsCount, restoredLatencyPoints, state.LastSaved.Format("2006-01-02 15:04:05"))
 
 	return nil
 }

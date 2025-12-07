@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -90,10 +92,10 @@ func getClientIP(r *http.Request) string {
 // securityHeadersMiddleware adds security headers to responses
 func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Content Security Policy - allow scripts from same origin
+		// Content Security Policy - allow scripts from same origin and Chart.js CDN
 		w.Header().Set("Content-Security-Policy", 
 			"default-src 'self'; "+
-			"script-src 'self'; "+
+			"script-src 'self' https://cdn.jsdelivr.net; "+
 			"style-src 'self' 'unsafe-inline'; "+
 			"img-src 'self' data:; "+
 			"font-src 'self'; "+
@@ -745,6 +747,121 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleReportsGraphs handles the graphs page
+func (pm *PingMonitor) handleReportsGraphs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	
+	uptime := time.Since(pm.serviceStartTime)
+	schedule := fmt.Sprintf("%s at %s", strings.Title(pm.config.SummaryReportSchedule), pm.config.SummaryReportTime)
+	
+	// Build targets list for dropdown
+	type TargetInfo struct {
+		Name    string
+		Address string
+		Label   string
+	}
+	
+	pm.mu.RLock()
+	targets := make([]TargetInfo, len(pm.config.Targets))
+	for i, target := range pm.config.Targets {
+		targets[i] = TargetInfo{
+			Name:    target.Name,
+			Address: target.TargetAddr,
+			Label:   getTargetLabel(target.TargetAddr),
+		}
+	}
+	pm.mu.RUnlock()
+	
+	data := struct {
+		TargetCount      int
+		Uptime           string
+		Interval         int
+		Schedule         string
+		Timestamp        string
+		Targets          []TargetInfo
+		ServiceStartTime string
+	}{
+		TargetCount:      len(pm.config.Targets),
+		Uptime:           formatDuration(uptime),
+		Interval:         pm.config.PingIntervalSeconds,
+		Schedule:         schedule,
+		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
+		Targets:          targets,
+		ServiceStartTime: pm.serviceStartTime.Format("Jan 2 15:04"),
+	}
+	
+	if err := pm.templates.ExecuteTemplate(w, "report_graphs.html", data); err != nil {
+		http.Error(w, "Template error", http.StatusInternalServerError)
+		log.Printf("⚠️  Template error: %v", err)
+	}
+}
+
+// handleAPILatencyHistory returns latency history data as JSON
+func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	// Get hours parameter (default 24, max 24 since we only store 24h)
+	hours := 24
+	if hoursParam := r.URL.Query().Get("hours"); hoursParam != "" {
+		fmt.Sscanf(hoursParam, "%d", &hours)
+		if hours < 1 {
+			hours = 1
+		}
+		if hours > 24 { // Max 24h - that's all we store
+			hours = 24
+		}
+	}
+	
+	cutoff := time.Now().Add(-time.Duration(hours) * time.Hour)
+	
+	// Build response
+	type TargetData struct {
+		Name    string         `json:"name"`
+		Address string         `json:"address"`
+		Label   string         `json:"label"`
+		Points  []LatencyPoint `json:"points"`
+	}
+	
+	pm.mu.RLock()
+	targets := make([]TargetData, 0, len(pm.config.Targets))
+	
+	for _, target := range pm.config.Targets {
+		points := pm.latencyHistory[target.TargetAddr]
+		filteredPoints := make([]LatencyPoint, 0, len(points))
+		
+		for _, point := range points {
+			if point.Timestamp.After(cutoff) {
+				filteredPoints = append(filteredPoints, point)
+			}
+		}
+		
+		// Sort by timestamp
+		sort.Slice(filteredPoints, func(i, j int) bool {
+			return filteredPoints[i].Timestamp.Before(filteredPoints[j].Timestamp)
+		})
+		
+		targets = append(targets, TargetData{
+			Name:    target.Name,
+			Address: target.TargetAddr,
+			Label:   getTargetLabel(target.TargetAddr),
+			Points:  filteredPoints,
+		})
+	}
+	pm.mu.RUnlock()
+	
+	response := struct {
+		Hours   int          `json:"hours"`
+		Targets []TargetData `json:"targets"`
+	}{
+		Hours:   hours,
+		Targets: targets,
+	}
+	
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("⚠️  JSON encode error: %v", err)
+	}
+}
+
 // startHTTPServer starts the HTTP server
 func (pm *PingMonitor) startHTTPServer() {
 	if !pm.config.HTTPEnabled {
@@ -763,6 +880,8 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/reports", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReports))))
 	http.HandleFunc("/report_now", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportNow))))
 	http.HandleFunc("/report_all", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportAll))))
+	http.HandleFunc("/reports/graphs", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportsGraphs))))
+	http.HandleFunc("/api/latency-history", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPILatencyHistory))))
 	
 	if pm.httpRateLimiter != nil {
 		go func() {
