@@ -23,6 +23,8 @@ type Config struct {
 	PacketLossRapidConfirmDelaySeconds       int      `json:"packet_loss_rapid_confirm_delay_seconds"`
 	PacketLossRapidConfirmCount              int      `json:"packet_loss_rapid_confirm_count"`
 	PacketLossRapidConfirmIntervalSeconds    int      `json:"packet_loss_rapid_confirm_interval_seconds"`
+	AlertStatePingIntervalSeconds            int      `json:"alert_state_ping_interval_seconds"`
+	RecoveryConfirmationCount                int      `json:"recovery_confirmation_count"`
 	AlertCooldownMinutes                     int      `json:"alert_cooldown_minutes"`
 	EmailRateLimitPerHour      int      `json:"email_rate_limit_per_hour"`
 	MaxConcurrentPings         int      `json:"max_concurrent_pings"`
@@ -135,6 +137,18 @@ func ValidateConfig(config Config) error {
 	}
 	if config.StaggerWindowSeconds > config.PingIntervalSeconds {
 		errors = append(errors, "stagger_window_seconds should not exceed ping_interval_seconds")
+	}
+	if config.AlertStatePingIntervalSeconds < 1 {
+		errors = append(errors, "alert_state_ping_interval_seconds must be at least 1")
+	}
+	if config.AlertStatePingIntervalSeconds > config.PingIntervalSeconds {
+		errors = append(errors, "alert_state_ping_interval_seconds should not exceed ping_interval_seconds")
+	}
+	if config.RecoveryConfirmationCount < 1 {
+		errors = append(errors, "recovery_confirmation_count must be at least 1")
+	}
+	if config.RecoveryConfirmationCount > 10 {
+		errors = append(errors, "recovery_confirmation_count should not exceed 10")
 	}
 
 	// Validate email config

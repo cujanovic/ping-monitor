@@ -13,6 +13,8 @@
   "packet_loss_rapid_confirm_delay_seconds": 2,
   "packet_loss_rapid_confirm_count": 2,
   "packet_loss_rapid_confirm_interval_seconds": 3,
+  "alert_state_ping_interval_seconds": 1,
+  "recovery_confirmation_count": 2,
   "alert_cooldown_minutes": 15,
   "email_rate_limit_per_hour": 60,
   "max_concurrent_pings": 10,

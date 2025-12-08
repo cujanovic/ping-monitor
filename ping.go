@@ -119,11 +119,28 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
 
 	// Check if status changed (down/up)
 	wasDown := pm.downTargets[target.TargetAddr]
+	requiredRecoveryCount := pm.config.RecoveryConfirmationCount
 
 	if !success && !wasDown {
+		// Target just went down
+		pm.recoveryConsecutiveCount[target.TargetAddr] = 0 // Reset recovery counter
 		pm.handleTargetDown(target, packetLoss, now)
+	} else if !success && wasDown {
+		// Target still down - reset recovery counter
+		pm.recoveryConsecutiveCount[target.TargetAddr] = 0
 	} else if success && wasDown {
-		pm.handleTargetRecovered(target, rttMs, packetLoss)
+		// Target was down, now responding - check recovery confirmation
+		pm.recoveryConsecutiveCount[target.TargetAddr]++
+		currentCount := pm.recoveryConsecutiveCount[target.TargetAddr]
+		
+		if currentCount >= requiredRecoveryCount {
+			// Confirmed recovery
+			pm.recoveryConsecutiveCount[target.TargetAddr] = 0
+			pm.handleTargetRecovered(target, rttMs, packetLoss)
+		} else {
+			log.Printf("🔄 %s responding but confirming recovery [%d/%d]",
+				formatTargetInfo(target), currentCount, requiredRecoveryCount)
+		}
 	}
 
 	// Check packet loss and latency thresholds for targets that are up
@@ -185,6 +202,10 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 	requiredConsecutive := pm.config.PacketLossConsecutiveCount
 
 	if hasPacketLoss {
+		// Reset recovery counter since packet loss is high
+		recoveryKey := target.TargetAddr + "_packetloss"
+		pm.recoveryConsecutiveCount[recoveryKey] = 0
+		
 		// Check if we should trigger rapid confirmation
 		if !hadPacketLoss && pm.config.PacketLossRapidConfirmEnabled && pm.packetLossConsecutiveCount[target.TargetAddr] == 0 {
 			// First detection - trigger rapid confirmation in background
@@ -225,7 +246,7 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 				formatTargetInfo(target), packetLoss, packetLossThreshold, currentCount, requiredConsecutive)
 		}
 	} else {
-		// Packet loss is normal - reset counter
+		// Packet loss is normal - reset alert counter
 		if pm.packetLossConsecutiveCount[target.TargetAddr] > 0 {
 			log.Printf("✓ %s packet loss returned to normal before alerting threshold (was %d/%d consecutive)",
 				formatTargetInfo(target), pm.packetLossConsecutiveCount[target.TargetAddr], requiredConsecutive)
@@ -233,27 +254,39 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 		pm.packetLossConsecutiveCount[target.TargetAddr] = 0
 
 		if hadPacketLoss {
-			// Had packet loss, now recovered
-			duration := time.Duration(0)
-			if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
-				duration = time.Since(startTime)
-			}
-			delete(pm.packetLossTargets, target.TargetAddr)
-			delete(pm.packetLossSince, target.TargetAddr)
-			log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%)",
-				formatTargetInfo(target), packetLoss, packetLossThreshold)
-			pm.mu.Unlock()
-
-			pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
-
-			if pm.canSendAlert(target, "packet_loss_normal") {
-				if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
-					log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v", target.Name, err)
-				} else {
-					pm.recordAlert(target, "packet_loss_normal")
+			// Had packet loss, now normal - check recovery confirmation
+			recoveryKey := target.TargetAddr + "_packetloss"
+			pm.recoveryConsecutiveCount[recoveryKey]++
+			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
+			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
+			
+			if currentRecoveryCount >= requiredRecoveryCount {
+				// Confirmed recovery
+				pm.recoveryConsecutiveCount[recoveryKey] = 0
+				duration := time.Duration(0)
+				if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
+					duration = time.Since(startTime)
 				}
+				delete(pm.packetLossTargets, target.TargetAddr)
+				delete(pm.packetLossSince, target.TargetAddr)
+				log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%) confirmed after %d checks",
+					formatTargetInfo(target), packetLoss, packetLossThreshold, currentRecoveryCount)
+				pm.mu.Unlock()
+
+				pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
+
+				if pm.canSendAlert(target, "packet_loss_normal") {
+					if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
+						log.Printf("⚠️  Failed to send packet loss recovery notification for %s: %v", target.Name, err)
+					} else {
+						pm.recordAlert(target, "packet_loss_normal")
+					}
+				}
+				pm.mu.Lock()
+			} else {
+				log.Printf("🔄 %s packet loss normal but confirming recovery [%d/%d]",
+					formatTargetInfo(target), currentRecoveryCount, requiredRecoveryCount)
 			}
-			pm.mu.Lock()
 		}
 	}
 }
@@ -266,6 +299,10 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 	requiredConsecutive := pm.config.HighLatencyConsecutiveCount
 
 	if isSlow {
+		// Reset recovery counter since latency is high
+		recoveryKey := target.TargetAddr + "_latency"
+		pm.recoveryConsecutiveCount[recoveryKey] = 0
+		
 		// Check if we should trigger rapid confirmation
 		if !wasSlow && pm.config.HighLatencyRapidConfirmEnabled && pm.slowConsecutiveCount[target.TargetAddr] == 0 {
 			// First detection - trigger rapid confirmation in background
@@ -306,7 +343,7 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 				formatTargetInfo(target), rttMs, threshold, currentCount, requiredConsecutive)
 		}
 	} else {
-		// Latency is normal - reset counter
+		// Latency is normal - reset alert counter
 		if pm.slowConsecutiveCount[target.TargetAddr] > 0 {
 			log.Printf("✓ %s latency returned to normal before alerting threshold (was %d/%d consecutive)",
 				formatTargetInfo(target), pm.slowConsecutiveCount[target.TargetAddr], requiredConsecutive)
@@ -314,27 +351,39 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 		pm.slowConsecutiveCount[target.TargetAddr] = 0
 
 		if wasSlow {
-			// Was slow, now recovered
-			duration := time.Duration(0)
-			if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
-				duration = time.Since(startTime)
-			}
-			delete(pm.slowTargets, target.TargetAddr)
-			delete(pm.slowSince, target.TargetAddr)
-			log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms)",
-				formatTargetInfo(target), rttMs, threshold)
-			pm.mu.Unlock()
-
-			pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
-
-			if pm.canSendAlert(target, "normal") {
-				if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
-					log.Printf("⚠️  Failed to send latency recovery notification for %s: %v", target.Name, err)
-				} else {
-					pm.recordAlert(target, "normal")
+			// Was slow, now normal - check recovery confirmation
+			recoveryKey := target.TargetAddr + "_latency"
+			pm.recoveryConsecutiveCount[recoveryKey]++
+			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
+			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
+			
+			if currentRecoveryCount >= requiredRecoveryCount {
+				// Confirmed recovery
+				pm.recoveryConsecutiveCount[recoveryKey] = 0
+				duration := time.Duration(0)
+				if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
+					duration = time.Since(startTime)
 				}
+				delete(pm.slowTargets, target.TargetAddr)
+				delete(pm.slowSince, target.TargetAddr)
+				log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms) confirmed after %d checks",
+					formatTargetInfo(target), rttMs, threshold, currentRecoveryCount)
+				pm.mu.Unlock()
+
+				pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
+
+				if pm.canSendAlert(target, "normal") {
+					if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
+						log.Printf("⚠️  Failed to send latency recovery notification for %s: %v", target.Name, err)
+					} else {
+						pm.recordAlert(target, "normal")
+					}
+				}
+				pm.mu.Lock()
+			} else {
+				log.Printf("🔄 %s latency normal but confirming recovery [%d/%d]",
+					formatTargetInfo(target), currentRecoveryCount, requiredRecoveryCount)
 			}
-			pm.mu.Lock()
 		}
 	}
 }

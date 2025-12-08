@@ -24,6 +24,7 @@ type PingMonitor struct {
 	packetLossTargets         map[string]bool
 	packetLossSince           map[string]time.Time
 	packetLossConsecutiveCount map[string]int        // Track consecutive packet loss occurrences
+	recoveryConsecutiveCount   map[string]int        // Track consecutive normal pings for recovery confirmation
 	lastAlertTime             map[AlertKey]time.Time
 	emailsSentThisHour []time.Time
 	targetStats        map[string]*TargetStats
@@ -85,6 +86,12 @@ func NewPingMonitor(config Config) *PingMonitor {
 	}
 	if config.PacketLossRapidConfirmIntervalSeconds == 0 {
 		config.PacketLossRapidConfirmIntervalSeconds = 3
+	}
+	if config.AlertStatePingIntervalSeconds == 0 {
+		config.AlertStatePingIntervalSeconds = 5 // Faster polling while in alert state
+	}
+	if config.RecoveryConfirmationCount == 0 {
+		config.RecoveryConfirmationCount = 2 // Require 2 consecutive normal pings for recovery
 	}
 	if config.AlertCooldownMinutes == 0 {
 		config.AlertCooldownMinutes = 15
@@ -216,6 +223,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		packetLossTargets:         make(map[string]bool),
 		packetLossSince:           make(map[string]time.Time),
 		packetLossConsecutiveCount: make(map[string]int),
+		recoveryConsecutiveCount:   make(map[string]int),
 		lastAlertTime:             make(map[AlertKey]time.Time),
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
@@ -443,13 +451,38 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 	now := time.Now()
 	pm.monitorTarget(t, now)
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	alertInterval := time.Duration(pm.config.AlertStatePingIntervalSeconds) * time.Second
+	wasInAlertState := false
 
-	for range ticker.C {
-		// Cache time.Now() once per cycle and pass it down
-		now := time.Now()
-		pm.monitorTarget(t, now)
+	for {
+		// Check if target is in alert state
+		pm.mu.RLock()
+		inAlertState := pm.downTargets[t.TargetAddr] || pm.slowTargets[t.TargetAddr] || pm.packetLossTargets[t.TargetAddr]
+		pm.mu.RUnlock()
+
+		// Determine which interval to use
+		var waitDuration time.Duration
+		if inAlertState && alertInterval < interval {
+			waitDuration = alertInterval
+			if !wasInAlertState {
+				log.Printf("⚡ %s entering rapid polling mode (%ds interval)", t.Name, pm.config.AlertStatePingIntervalSeconds)
+			}
+		} else {
+			waitDuration = interval
+			if wasInAlertState {
+				log.Printf("⏱️  %s returning to normal polling mode (%ds interval)", t.Name, pm.config.PingIntervalSeconds)
+			}
+		}
+		wasInAlertState = inAlertState
+
+		// Wait for the interval or stop signal
+		select {
+		case <-time.After(waitDuration):
+			now := time.Now()
+			pm.monitorTarget(t, now)
+		case <-pm.stopChan:
+			return
+		}
 	}
 }
 
@@ -465,6 +498,8 @@ func (pm *PingMonitor) logStartupInfo() {
 	log.Printf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes)
 	log.Printf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour)
 	log.Printf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings)
+	log.Printf("   • Alert State Ping Interval: %d seconds", pm.config.AlertStatePingIntervalSeconds)
+	log.Printf("   • Recovery Confirmation: %d consecutive checks", pm.config.RecoveryConfirmationCount)
 	
 	if pm.config.UseRawSockets {
 		log.Printf("   • Raw Sockets: enabled (requires CAP_NET_RAW)")
