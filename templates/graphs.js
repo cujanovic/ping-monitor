@@ -637,7 +637,7 @@ function createHeatmapChart(data) {
 	
 	// Generate time labels
 	for (var t = startTime; t < now; t += bucketSize) {
-		timeLabels.push(new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+		timeLabels.push(new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
 	}
 	
 	data.targets.forEach(function(target) {
