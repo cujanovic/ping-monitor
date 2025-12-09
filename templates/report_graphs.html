@@ -6,6 +6,8 @@
 	<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 	<script src="/static/chart.min.js"></script>
 	<script src="/static/chartjs-adapter-date-fns.min.js"></script>
+	<script src="/static/hammer.min.js"></script>
+	<script src="/static/chartjs-plugin-zoom.min.js"></script>
 	<style>
 		html {
 			background: #181d36;
@@ -101,6 +103,25 @@
 			font-weight: 600;
 			margin-bottom: 15px;
 			text-align: left;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+		}
+		.reset-zoom-btn {
+			background: #4a5568;
+			border: none;
+			border-radius: 5px;
+			padding: 5px 10px;
+			color: #e0e0e0;
+			font-size: 11px;
+			cursor: pointer;
+			font-family: inherit;
+			opacity: 0.7;
+			transition: opacity 0.2s, background 0.2s;
+		}
+		.reset-zoom-btn:hover {
+			opacity: 1;
+			background: #667eea;
 		}
 		.stats-grid {
 			display: grid;
@@ -266,22 +287,34 @@
 		</div>
 		
 		<div class="chart-container" id="latencyChartContainer">
-			<div class="chart-title">📊 Latency Over Time</div>
+			<div class="chart-title">
+				<span>📊 Latency Over Time</span>
+				<button class="reset-zoom-btn" onclick="resetZoom('latency')">🔍 Reset Zoom</button>
+			</div>
 			<canvas id="latencyChart"></canvas>
 		</div>
 		
 		<div class="chart-container" id="packetLossChartContainer">
-			<div class="chart-title">📉 Packet Loss Over Time</div>
+			<div class="chart-title">
+				<span>📉 Packet Loss Over Time</span>
+				<button class="reset-zoom-btn" onclick="resetZoom('packetLoss')">🔍 Reset Zoom</button>
+			</div>
 			<canvas id="packetLossChart"></canvas>
 		</div>
 		
 		<div class="chart-container" id="percentilesChartContainer">
-			<div class="chart-title">🎯 Latency Percentiles (P50/P90/P95/P99)</div>
+			<div class="chart-title">
+				<span>🎯 Latency Percentiles (P50/P90/P95/P99)</span>
+				<button class="reset-zoom-btn" onclick="resetZoom('percentiles')">🔍 Reset Zoom</button>
+			</div>
 			<canvas id="percentilesChart"></canvas>
 		</div>
 		
 		<div class="chart-container" id="successRateChartContainer">
-			<div class="chart-title">✅ Success Rate Over Time</div>
+			<div class="chart-title">
+				<span>✅ Success Rate Over Time</span>
+				<button class="reset-zoom-btn" onclick="resetZoom('successRate')">🔍 Reset Zoom</button>
+			</div>
 			<canvas id="successRateChart"></canvas>
 		</div>
 		
@@ -291,7 +324,10 @@
 		</div>
 		
 		<div class="chart-container" id="jitterChartContainer">
-			<div class="chart-title">📈 Jitter (Latency Variance) Over Time</div>
+			<div class="chart-title">
+				<span>📈 Jitter (Latency Variance) Over Time</span>
+				<button class="reset-zoom-btn" onclick="resetZoom('jitter')">🔍 Reset Zoom</button>
+			</div>
 			<canvas id="jitterChart"></canvas>
 		</div>
 		
@@ -313,7 +349,9 @@
 		<div class="info-box">
 			<span class="icon">ℹ️</span>
 			Data is collected every {{.Interval}} seconds. Graphs show up to 24 hours of historical data.
-			Service running since {{.ServiceStartTime}}.
+			Service running since {{.ServiceStartTime}}.<br>
+			<span class="icon">🔍</span>
+			<strong>Zoom:</strong> Scroll to zoom horizontally on time-based charts. Click and drag to pan. Double-click to reset zoom.
 		</div>
 		
 		<div>

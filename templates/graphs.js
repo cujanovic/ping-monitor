@@ -123,6 +123,40 @@ function updateStats(data) {
 	document.getElementById('successRate').textContent = successRate.toFixed(1);
 }
 
+// Reset zoom for a specific chart
+function resetZoom(chartName) {
+	if (charts[chartName]) {
+		charts[chartName].resetZoom();
+	}
+}
+
+// Zoom plugin options for time-based charts
+function getZoomOptions() {
+	return {
+		zoom: {
+			wheel: {
+				enabled: true,
+				modifierKey: null // no modifier key needed
+			},
+			pinch: {
+				enabled: true
+			},
+			drag: {
+				enabled: false // use pan instead
+			},
+			mode: 'x' // only zoom horizontally
+		},
+		pan: {
+			enabled: true,
+			mode: 'x',
+			modifierKey: null
+		},
+		limits: {
+			x: { minRange: 60 * 1000 } // minimum 1 minute range
+		}
+	};
+}
+
 // Common chart options
 function getBaseChartOptions() {
 	return {
@@ -147,7 +181,8 @@ function getBaseChartOptions() {
 				borderColor: '#404040',
 				borderWidth: 1,
 				padding: 10
-			}
+			},
+			zoom: getZoomOptions()
 		},
 		scales: {
 			x: {

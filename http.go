@@ -368,6 +368,36 @@ func (pm *PingMonitor) handleStaticGraphsJS(w http.ResponseWriter, r *http.Reque
 	w.Write(content)
 }
 
+// handleStaticHammerJS serves the Hammer.js library for touch gestures
+func (pm *PingMonitor) handleStaticHammerJS(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	
+	content, err := os.ReadFile("templates/hammer.min.js")
+	if err != nil {
+		http.Error(w, "Hammer.js not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read hammer.min.js: %v", err)
+		return
+	}
+	
+	w.Write(content)
+}
+
+// handleStaticZoomPlugin serves the Chart.js zoom plugin
+func (pm *PingMonitor) handleStaticZoomPlugin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	
+	content, err := os.ReadFile("templates/chartjs-plugin-zoom.min.js")
+	if err != nil {
+		http.Error(w, "Zoom plugin not found", http.StatusNotFound)
+		log.Printf("⚠️  Failed to read chartjs-plugin-zoom.min.js: %v", err)
+		return
+	}
+	
+	w.Write(content)
+}
+
 // handleReports handles the reports page
 func (pm *PingMonitor) handleReports(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -923,6 +953,8 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/static/chart.min.js", securityHeadersMiddleware(pm.handleStaticChartJS))
 	http.HandleFunc("/static/chartjs-adapter-date-fns.min.js", securityHeadersMiddleware(pm.handleStaticChartAdapter))
 	http.HandleFunc("/static/graphs.js", securityHeadersMiddleware(pm.handleStaticGraphsJS))
+	http.HandleFunc("/static/hammer.min.js", securityHeadersMiddleware(pm.handleStaticHammerJS))
+	http.HandleFunc("/static/chartjs-plugin-zoom.min.js", securityHeadersMiddleware(pm.handleStaticZoomPlugin))
 	
 	// Protected routes (require auth if enabled, with security headers)
 	http.HandleFunc("/", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleRoot))))
