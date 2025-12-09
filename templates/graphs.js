@@ -187,7 +187,13 @@ function getBaseChartOptions() {
 		scales: {
 			x: {
 				type: 'time',
-				time: { displayFormats: { hour: 'HH:mm', day: 'MMM d' } },
+				time: { 
+					displayFormats: { 
+						hour: 'HH:mm', 
+						day: 'MMM d',
+						week: 'MMM d'
+					}
+				},
 				grid: { color: '#404040' },
 				ticks: { color: '#b0b0b0', font: { size: 10 } }
 			},

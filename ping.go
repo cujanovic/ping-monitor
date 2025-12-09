@@ -76,8 +76,9 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	}
 	pm.latencyHistory[target.TargetAddr] = append(pm.latencyHistory[target.TargetAddr], point)
 	
-	// Keep only last 24 hours of data (calculated based on interval)
-	maxPoints := (24 * 60 * 60) / pm.config.PingIntervalSeconds // ~4320 points at 20s interval
+	// Keep only last 7 weeks of data (calculated based on interval)
+	// 7 weeks = 49 days = 49 * 24 * 60 * 60 seconds
+	maxPoints := (49 * 24 * 60 * 60) / pm.config.PingIntervalSeconds // ~211,680 points at 20s interval
 	if len(pm.latencyHistory[target.TargetAddr]) > maxPoints {
 		pm.latencyHistory[target.TargetAddr] = pm.latencyHistory[target.TargetAddr][len(pm.latencyHistory[target.TargetAddr])-maxPoints:]
 	}

@@ -876,15 +876,15 @@ func (pm *PingMonitor) handleReportsGraphs(w http.ResponseWriter, r *http.Reques
 func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
-	// Get hours parameter (default 24, max 24 since we only store 24h)
+	// Get hours parameter (default 24, max 1176 = 7 weeks)
 	hours := 24
 	if hoursParam := r.URL.Query().Get("hours"); hoursParam != "" {
 		fmt.Sscanf(hoursParam, "%d", &hours)
 		if hours < 1 {
 			hours = 1
 		}
-		if hours > 24 { // Max 24h - that's all we store
-			hours = 24
+		if hours > 1176 { // Max 7 weeks (49 days * 24 hours)
+			hours = 1176
 		}
 	}
 	

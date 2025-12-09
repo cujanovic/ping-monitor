@@ -35,7 +35,7 @@ func (pm *PingMonitor) saveState() error {
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
-	latencyCutoff := time.Now().Add(-24 * time.Hour) // Keep 24h of latency data
+	latencyCutoff := time.Now().Add(-49 * 24 * time.Hour) // Keep 7 weeks of latency data
 	
 	for addr, stats := range pm.targetStats {
 		if stats == nil {
@@ -73,7 +73,7 @@ func (pm *PingMonitor) saveState() error {
 		}
 	}
 	
-	// Save latency history (last 24h)
+	// Save latency history (last 7 weeks)
 	for addr, points := range pm.latencyHistory {
 		validPoints := make([]LatencyPoint, 0, len(points))
 		for _, point := range points {
@@ -213,7 +213,7 @@ func (pm *PingMonitor) loadState() error {
 
 	// Restore latency history
 	restoredLatencyPoints := 0
-	latencyCutoff := time.Now().Add(-24 * time.Hour)
+	latencyCutoff := time.Now().Add(-49 * 24 * time.Hour) // 7 weeks
 	for addr, points := range state.LatencyHistory {
 		// Only restore if target still exists
 		if _, exists := pm.targetStats[addr]; !exists {
