@@ -189,10 +189,17 @@ function getBaseChartOptions() {
 				type: 'time',
 				time: { 
 					displayFormats: { 
+						millisecond: 'HH:mm:ss.SSS',
+						second: 'HH:mm:ss',
+						minute: 'HH:mm',
 						hour: 'HH:mm', 
 						day: 'MMM d',
-						week: 'MMM d'
-					}
+						week: 'MMM d',
+						month: 'MMM yyyy',
+						quarter: 'MMM yyyy',
+						year: 'yyyy'
+					},
+					tooltipFormat: 'MMM d, HH:mm:ss'
 				},
 				grid: { color: '#404040' },
 				ticks: { color: '#b0b0b0', font: { size: 10 } }
