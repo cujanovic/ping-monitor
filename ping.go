@@ -86,11 +86,9 @@ func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, f
 	}
 	pm.mu.Unlock()
 
-	// Update statistics only for normal interval pings (not rapid polling)
-	// This prevents inflating failed check counters during alert state
-	if updateStats {
-		pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
-	}
+	// Always update basic stats (TotalChecks, SuccessfulChecks, latency tracking)
+	// but only count failures during normal polling (not rapid polling)
+	pm.updateTargetStats(target, success, packetLossPercent, avgRttMs, updateStats)
 
 	// Log the result
 	if success {

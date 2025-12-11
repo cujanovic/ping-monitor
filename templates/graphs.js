@@ -76,6 +76,17 @@ async function fetchData() {
 	var hours = hoursSelect ? hoursSelect.value : 24;
 	try {
 		var response = await fetch('/api/latency-history?hours=' + hours);
+		
+		// Handle authentication errors - redirect to login
+		if (response.status === 401) {
+			window.location.href = '/login?return=' + encodeURIComponent('/reports/graphs');
+			return null;
+		}
+		
+		if (!response.ok) {
+			throw new Error('HTTP ' + response.status);
+		}
+		
 		cachedData = await response.json();
 		return cachedData;
 	} catch (error) {

@@ -284,6 +284,15 @@ func (pm *PingMonitor) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Check for session cookie
 		cookie, err := r.Cookie("ping_monitor_session")
 		if err != nil || !pm.sessionManager.ValidateSession(cookie.Value) {
+			// For API routes, return 401 instead of redirecting
+			// This allows JavaScript to handle the auth error gracefully
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error": "unauthorized", "message": "Please login to access this resource"}`))
+				return
+			}
+			
 			// Redirect to login with return URL (validated)
 			returnURL := r.URL.Path
 			if r.URL.RawQuery != "" {

@@ -14,7 +14,9 @@ import (
 )
 
 // updateTargetStats updates statistics for a target
-func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss int, latencyMs float64) {
+// countFailures controls whether to increment failure counters (FailedChecks, HighLatencyCount, PacketLossEvents)
+// Set to false during rapid polling to avoid inflating failure counts while still tracking totals
+func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss int, latencyMs float64, countFailures bool) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -48,12 +50,18 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 			stats.MaxLatency = latencyMs
 		}
 		
-		threshold := pm.getTargetThreshold(target)
-		if latencyMs > float64(threshold) {
-			stats.HighLatencyCount++
+		// Only count high latency during normal polling
+		if countFailures {
+			threshold := pm.getTargetThreshold(target)
+			if latencyMs > float64(threshold) {
+				stats.HighLatencyCount++
+			}
 		}
 	} else {
-		stats.FailedChecks++
+		// Only count failures during normal polling
+		if countFailures {
+			stats.FailedChecks++
+		}
 	}
 
 	stats.TotalPacketLoss += int64(packetLoss)
@@ -62,11 +70,13 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 		stats.MaxPacketLoss = packetLoss
 	}
 	
-	// Only count packet loss for successful pings (at least 1 packet received)
-	// Failed pings (0 packets) are already counted in FailedChecks
-	packetLossThreshold := pm.getPacketLossThreshold(target)
-	if success && packetLoss >= packetLossThreshold {
-		stats.PacketLossEvents++
+	// Only count packet loss events during normal polling
+	// Also only count for successful pings (failed pings are already counted in FailedChecks)
+	if countFailures {
+		packetLossThreshold := pm.getPacketLossThreshold(target)
+		if success && packetLoss >= packetLossThreshold {
+			stats.PacketLossEvents++
+		}
 	}
 }
 
