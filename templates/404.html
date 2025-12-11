@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>404 - Ping Monitor</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+	<style>
+		html {
+			background: #181d36;
+		}
+		body {
+			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+			background-attachment: fixed;
+			margin: 0;
+			padding: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+		}
+		.container {
+			background: #2d2d2d;
+			border-radius: 20px;
+			box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+			padding: 60px 40px;
+			text-align: center;
+			max-width: 500px;
+			width: 90%;
+			margin: 20px;
+		}
+		.error-code {
+			font-size: 120px;
+			font-weight: 700;
+			color: #f44336;
+			margin: 0;
+			line-height: 1;
+			text-shadow: 0 4px 20px rgba(244, 67, 54, 0.3);
+		}
+		h1 {
+			color: #e0e0e0;
+			font-size: 28px;
+			margin: 20px 0 10px 0;
+			font-weight: 700;
+		}
+		.emoji {
+			font-size: 64px;
+			margin-bottom: 10px;
+		}
+		.subtitle {
+			color: #b0b0b0;
+			font-size: 16px;
+			margin-bottom: 30px;
+			line-height: 1.6;
+		}
+		.path {
+			background: #1e1e1e;
+			border-radius: 8px;
+			padding: 12px 16px;
+			margin: 20px 0;
+			color: #f44336;
+			font-size: 14px;
+			word-break: break-all;
+			border: 1px solid #404040;
+		}
+		.btn {
+			display: inline-block;
+			padding: 14px 30px;
+			margin-top: 20px;
+			border: none;
+			border-radius: 10px;
+			background: #667eea;
+			color: white;
+			font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+			font-size: 14px;
+			font-weight: 600;
+			cursor: pointer;
+			transition: all 0.3s ease;
+			text-decoration: none;
+		}
+		.btn:hover {
+			background: #5a6fd6;
+			transform: translateY(-2px);
+			box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+		}
+		.links {
+			margin-top: 30px;
+			padding-top: 20px;
+			border-top: 1px solid #404040;
+		}
+		.links a {
+			color: #667eea;
+			text-decoration: none;
+			margin: 0 15px;
+			font-size: 14px;
+			transition: color 0.3s;
+		}
+		.links a:hover {
+			color: #8b9eff;
+		}
+	</style>
+</head>
+<body>
+	<div class="container">
+		<div class="emoji">🔍</div>
+		<div class="error-code">404</div>
+		<h1>Page Not Found</h1>
+		<p class="subtitle">
+			The page you're looking for doesn't exist or has been moved.
+		</p>
+		<div class="path">{{.Path}}</div>
+		<a href="/" class="btn">← Back to Dashboard</a>
+		<div class="links">
+			<a href="/reports">📊 Reports</a>
+			<a href="/reports/graphs">📈 Graphs</a>
+		</div>
+	</div>
+</body>
+</html>
+

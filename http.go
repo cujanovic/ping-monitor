@@ -130,10 +130,28 @@ func (pm *PingMonitor) rateLimitMiddleware(next http.HandlerFunc) http.HandlerFu
 	}
 }
 
+// handle404 renders a styled 404 page
+func (pm *PingMonitor) handle404(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusNotFound)
+	
+	data := struct {
+		Path string
+	}{
+		Path: r.URL.Path,
+	}
+	
+	if err := pm.templates.ExecuteTemplate(w, "404.html", data); err != nil {
+		// Fallback to plain text if template fails
+		http.Error(w, "404 page not found", http.StatusNotFound)
+		log.Printf("⚠️  Template error for 404: %v", err)
+	}
+}
+
 // handleRoot handles the root endpoint
 func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		http.NotFound(w, r)
+		pm.handle404(w, r)
 		return
 	}
 	
