@@ -469,7 +469,7 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 	time.Sleep(delay)
 	// Cache time.Now() once per cycle and pass it down
 	now := time.Now()
-	pm.monitorTarget(t, now)
+	pm.monitorTarget(t, now, true) // Initial ping counts in stats
 
 	alertInterval := time.Duration(pm.config.AlertStatePingIntervalSeconds) * time.Second
 	wasInAlertState := false
@@ -482,13 +482,16 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 
 		// Determine which interval to use
 		var waitDuration time.Duration
+		var updateStats bool
 		if inAlertState && alertInterval < interval {
 			waitDuration = alertInterval
+			updateStats = false // Don't count rapid polling pings in stats
 			if !wasInAlertState {
-				log.Printf("⚡ %s entering rapid polling mode (%ds interval)", t.Name, pm.config.AlertStatePingIntervalSeconds)
+				log.Printf("⚡ %s entering rapid polling mode (%ds interval, stats paused)", t.Name, pm.config.AlertStatePingIntervalSeconds)
 			}
 		} else {
 			waitDuration = interval
+			updateStats = true // Normal interval pings count in stats
 			if wasInAlertState {
 				log.Printf("⏱️  %s returning to normal polling mode (%ds interval)", t.Name, pm.config.PingIntervalSeconds)
 			}
@@ -499,7 +502,7 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 		select {
 		case <-time.After(waitDuration):
 			now := time.Now()
-			pm.monitorTarget(t, now)
+			pm.monitorTarget(t, now, updateStats)
 		case <-pm.stopChan:
 			return
 		}

@@ -9,7 +9,9 @@ import (
 )
 
 // pingTarget pings a single target and returns success status, packet loss, and average RTT
-func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
+// updateStats controls whether this ping should count towards failed check statistics
+// (set to false for rapid polling to avoid inflating counters)
+func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, float64) {
 	// Resolve target address using DNS cache (handles both IPs and DNS names)
 	resolvedAddr, ipChanged, err := pm.dnsCache.Resolve(target.TargetAddr)
 	if err != nil {
@@ -67,7 +69,7 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 			formatTargetInfo(target), packetsRecv, packetsSent)
 	}
 	
-	// Record latency point for graphs
+	// Record latency point for graphs (always, for accurate graph data)
 	point := LatencyPoint{
 		Timestamp:  time.Now(),
 		LatencyMs:  avgRttMs,
@@ -84,8 +86,11 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 	}
 	pm.mu.Unlock()
 
-	// Update statistics
-	pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
+	// Update statistics only for normal interval pings (not rapid polling)
+	// This prevents inflating failed check counters during alert state
+	if updateStats {
+		pm.updateTargetStats(target, success, packetLossPercent, avgRttMs)
+	}
 
 	// Log the result
 	if success {
@@ -104,7 +109,9 @@ func (pm *PingMonitor) pingTarget(target Target) (bool, int, float64) {
 }
 
 // monitorTarget monitors a single target with graceful degradation
-func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
+// updateStats controls whether this ping counts towards failed check statistics
+// (set to false during rapid polling to avoid inflating counters)
+func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats bool) {
 	// Panic recovery (concurrency now handled by worker pool)
 	defer func() {
 		if r := recover(); r != nil {
@@ -113,7 +120,7 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
 		}
 	}()
 
-	success, packetLoss, rttMs := pm.pingTarget(target)
+	success, packetLoss, rttMs := pm.pingTarget(target, updateStats)
 
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
@@ -445,8 +452,8 @@ func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, det
 			}
 		}
 		
-		// Perform quick ping
-		success, _, rttMs := pm.pingTarget(target)
+		// Perform quick ping (don't count in stats - rapid confirmation)
+		success, _, rttMs := pm.pingTarget(target, false)
 		
 		if success && rttMs > float64(threshold) {
 			confirmCount++
@@ -535,8 +542,8 @@ func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, 
 			}
 		}
 		
-		// Perform quick ping
-		success, packetLoss, _ := pm.pingTarget(target)
+		// Perform quick ping (don't count in stats - rapid confirmation)
+		success, packetLoss, _ := pm.pingTarget(target, false)
 		
 		if success && packetLoss >= lossThreshold {
 			confirmCount++

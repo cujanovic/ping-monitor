@@ -462,10 +462,10 @@
 					<strong style="display: block; word-wrap: break-word; overflow-wrap: break-word;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
 					<span style="color: #888; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word;">{{.Label}}: {{.Address}}</span>
 					<div style="margin-top: 6px; font-size: 11px; color: #aaa;">
-						{{if gt .FailedChecks 0}}<div style="color: #f44336;">🔴 {{.FailedChecks}} down checks</div>{{end}}
-						{{if gt .HighLatencyChecks 0}}<div style="color: #FF9800;">⚠️ {{.HighLatencyChecks}} high latency checks</div>{{end}}
-						{{if gt .PacketLossChecks 0}}<div style="color: #FFC107;">📶 {{.PacketLossChecks}} packet loss checks</div>{{end}}
-						<div style="color: #569cd6; margin-top: 4px;">Total: {{.TotalFailedChecks}} failed checks</div>
+						{{if gt .FailedChecks 0}}<div style="color: #f44336;">🔴 {{.FailedChecks}} failed pings (no response)</div>{{end}}
+						{{if gt .HighLatencyChecks 0}}<div style="color: #FF9800;">⚠️ {{.HighLatencyChecks}} high latency pings</div>{{end}}
+						{{if gt .PacketLossChecks 0}}<div style="color: #FFC107;">📶 {{.PacketLossChecks}} packet loss pings</div>{{end}}
+						<div style="color: #569cd6; margin-top: 4px;">Total: {{.TotalFailedChecks}} threshold violations</div>
 					</div>
 				</div>
 			</div>

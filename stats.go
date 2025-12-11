@@ -62,8 +62,10 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 		stats.MaxPacketLoss = packetLoss
 	}
 	
+	// Only count packet loss for successful pings (at least 1 packet received)
+	// Failed pings (0 packets) are already counted in FailedChecks
 	packetLossThreshold := pm.getPacketLossThreshold(target)
-	if packetLoss >= packetLossThreshold {
+	if success && packetLoss >= packetLossThreshold {
 		stats.PacketLossEvents++
 	}
 }
