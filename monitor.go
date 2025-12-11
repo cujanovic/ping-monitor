@@ -25,6 +25,7 @@ type PingMonitor struct {
 	packetLossSince           map[string]time.Time
 	packetLossConsecutiveCount map[string]int        // Track consecutive packet loss occurrences
 	recoveryConsecutiveCount   map[string]int        // Track consecutive normal pings for recovery confirmation
+	recoveryStartedAt          map[string]time.Time  // When first successful ping during recovery was received
 	lastAlertTime             map[AlertKey]time.Time
 	emailsSentThisHour []time.Time
 	targetStats        map[string]*TargetStats
@@ -46,6 +47,7 @@ type PingMonitor struct {
 	targetLocks        map[string]*TargetLock // Per-target locks
 	lastStateSave      time.Time        // Last time state was saved to disk
 	stateSavePending   bool             // Flag indicating state needs to be saved
+	criticalSavePending bool            // Flag for critical events that need immediate save
 	stopChan           chan struct{}    // Signal to stop all goroutines
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
@@ -224,6 +226,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		packetLossSince:           make(map[string]time.Time),
 		packetLossConsecutiveCount: make(map[string]int),
 		recoveryConsecutiveCount:   make(map[string]int),
+		recoveryStartedAt:          make(map[string]time.Time),
 		lastAlertTime:             make(map[AlertKey]time.Time),
 		emailsSentThisHour: make([]time.Time, 0),
 		targetStats:        targetStats,
@@ -343,6 +346,7 @@ func (pm *PingMonitor) Start() {
 
 	// Start event-driven state saver goroutine with throttling
 	// Only saves when incidents occur, but throttles to avoid excessive writes
+	// Critical events (DOWN state changes) are saved immediately
 	if pm.config.StateFilePath != "" {
 		throttleSeconds := pm.config.StateSaveIntervalSeconds
 		if throttleSeconds <= 0 {
@@ -358,6 +362,22 @@ func (pm *PingMonitor) Start() {
 				case <-ticker.C:
 					pm.mu.Lock()
 					needsSave := pm.stateSavePending
+					criticalSave := pm.criticalSavePending
+					
+					// Critical events bypass throttle
+					if criticalSave {
+						pm.stateSavePending = false
+						pm.criticalSavePending = false
+						pm.lastStateSave = time.Now()
+						pm.mu.Unlock()
+						
+						if err := pm.saveState(); err != nil {
+							log.Printf("⚠️ Failed to save critical state: %v", err)
+						} else {
+							log.Printf("💾 Critical state saved (alert state change)")
+						}
+						continue
+					}
 					
 					// Check throttle: only save if enough time has passed since last save
 					if needsSave {
@@ -384,7 +404,7 @@ func (pm *PingMonitor) Start() {
 			}
 		}()
 		
-		log.Printf("💾 State persistence enabled: %s (event-driven, throttle: %ds)", 
+		log.Printf("💾 State persistence enabled: %s (event-driven, throttle: %ds, critical events immediate)", 
 			pm.config.StateFilePath, throttleSeconds)
 		pm.addLog(fmt.Sprintf("State persistence enabled (event-driven): %s", pm.config.StateFilePath))
 	}
@@ -489,7 +509,7 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 // logStartupInfo logs startup configuration information
 func (pm *PingMonitor) logStartupInfo() {
 	log.Printf("   • Targets: %d", len(pm.config.Targets))
-	pm.addLog("   • Targets: " + string(rune(len(pm.config.Targets))))
+	pm.addLog(fmt.Sprintf("   • Targets: %d", len(pm.config.Targets)))
 
 	log.Printf("   • Ping Interval: %d seconds", pm.config.PingIntervalSeconds)
 	log.Printf("   • Ping Count: %d", pm.config.PingCount)

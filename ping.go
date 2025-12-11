@@ -125,19 +125,28 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
 	if !success && !wasDown {
 		// Target just went down
 		pm.recoveryConsecutiveCount[target.TargetAddr] = 0 // Reset recovery counter
+		delete(pm.recoveryStartedAt, target.TargetAddr)    // Clear any recovery start time
 		pm.handleTargetDown(target, packetLoss, now)
 	} else if !success && wasDown {
 		// Target still down - reset recovery counter
 		pm.recoveryConsecutiveCount[target.TargetAddr] = 0
+		delete(pm.recoveryStartedAt, target.TargetAddr)
 	} else if success && wasDown {
 		// Target was down, now responding - check recovery confirmation
 		pm.recoveryConsecutiveCount[target.TargetAddr]++
 		currentCount := pm.recoveryConsecutiveCount[target.TargetAddr]
 		
+		// Track when recovery started (first successful ping)
+		if currentCount == 1 {
+			pm.recoveryStartedAt[target.TargetAddr] = now
+		}
+		
 		if currentCount >= requiredRecoveryCount {
-			// Confirmed recovery
+			// Confirmed recovery - use recoveryStartedAt for accurate timing
+			recoveryTime := pm.recoveryStartedAt[target.TargetAddr]
 			pm.recoveryConsecutiveCount[target.TargetAddr] = 0
-			pm.handleTargetRecovered(target, rttMs, packetLoss)
+			delete(pm.recoveryStartedAt, target.TargetAddr)
+			pm.handleTargetRecovered(target, rttMs, packetLoss, recoveryTime)
 		} else {
 			log.Printf("🔄 %s responding but confirming recovery [%d/%d]",
 				formatTargetInfo(target), currentCount, requiredRecoveryCount)
@@ -155,6 +164,7 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time) {
 func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.Time) {
 	pm.downTargets[target.TargetAddr] = true
 	pm.downSince[target.TargetAddr] = now
+	pm.criticalSavePending = true // Critical event - save immediately
 	logMsg := fmt.Sprintf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
 	log.Printf(logMsg)
 	pm.mu.Unlock()
@@ -173,10 +183,14 @@ func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.
 }
 
 // handleTargetRecovered handles when a target comes back up
-func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packetLoss int) {
-	downtime := time.Since(pm.downSince[target.TargetAddr])
+// recoveryTime is when the first successful ping was received during recovery confirmation
+func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packetLoss int, recoveryTime time.Time) {
+	downSince := pm.downSince[target.TargetAddr]
+	// Calculate accurate downtime: from when it went down to when first successful ping was received
+	downtime := recoveryTime.Sub(downSince)
 	delete(pm.downTargets, target.TargetAddr)
 	delete(pm.downSince, target.TargetAddr)
+	pm.criticalSavePending = true // Critical event - save immediately
 	logMsg := fmt.Sprintf("🟢 RECOVERY: %s is now UP (was down for %s)",
 		formatTargetInfo(target), formatDuration(downtime))
 	log.Printf(logMsg)
@@ -201,11 +215,12 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 	hadPacketLoss := pm.packetLossTargets[target.TargetAddr]
 	hasPacketLoss := packetLoss >= packetLossThreshold
 	requiredConsecutive := pm.config.PacketLossConsecutiveCount
+	recoveryKey := target.TargetAddr + "_packetloss"
 
 	if hasPacketLoss {
 		// Reset recovery counter since packet loss is high
-		recoveryKey := target.TargetAddr + "_packetloss"
 		pm.recoveryConsecutiveCount[recoveryKey] = 0
+		delete(pm.recoveryStartedAt, recoveryKey)
 		
 		// Check if we should trigger rapid confirmation
 		if !hadPacketLoss && pm.config.PacketLossRapidConfirmEnabled && pm.packetLossConsecutiveCount[target.TargetAddr] == 0 {
@@ -225,6 +240,7 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 			// Reached threshold - trigger alert
 			pm.packetLossTargets[target.TargetAddr] = true
 			pm.packetLossSince[target.TargetAddr] = now
+			pm.criticalSavePending = true // Critical event
 			logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (%d%% >= %d%%) for %d consecutive checks",
 				formatTargetInfo(target), packetLoss, packetLossThreshold, currentCount)
 			log.Printf(logMsg)
@@ -256,20 +272,27 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 
 		if hadPacketLoss {
 			// Had packet loss, now normal - check recovery confirmation
-			recoveryKey := target.TargetAddr + "_packetloss"
 			pm.recoveryConsecutiveCount[recoveryKey]++
 			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
 			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
 			
+			// Track when recovery started (first normal ping)
+			if currentRecoveryCount == 1 {
+				pm.recoveryStartedAt[recoveryKey] = now
+			}
+			
 			if currentRecoveryCount >= requiredRecoveryCount {
-				// Confirmed recovery
+				// Confirmed recovery - use recoveryStartedAt for accurate timing
+				recoveryTime := pm.recoveryStartedAt[recoveryKey]
 				pm.recoveryConsecutiveCount[recoveryKey] = 0
+				delete(pm.recoveryStartedAt, recoveryKey)
 				duration := time.Duration(0)
 				if startTime, exists := pm.packetLossSince[target.TargetAddr]; exists {
-					duration = time.Since(startTime)
+					duration = recoveryTime.Sub(startTime) // Accurate: from start to first normal
 				}
 				delete(pm.packetLossTargets, target.TargetAddr)
 				delete(pm.packetLossSince, target.TargetAddr)
+				pm.criticalSavePending = true // Critical event
 				log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%) confirmed after %d checks",
 					formatTargetInfo(target), packetLoss, packetLossThreshold, currentRecoveryCount)
 				pm.mu.Unlock()
@@ -298,11 +321,12 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 	wasSlow := pm.slowTargets[target.TargetAddr]
 	isSlow := rttMs > float64(threshold)
 	requiredConsecutive := pm.config.HighLatencyConsecutiveCount
+	recoveryKey := target.TargetAddr + "_latency"
 
 	if isSlow {
 		// Reset recovery counter since latency is high
-		recoveryKey := target.TargetAddr + "_latency"
 		pm.recoveryConsecutiveCount[recoveryKey] = 0
+		delete(pm.recoveryStartedAt, recoveryKey)
 		
 		// Check if we should trigger rapid confirmation
 		if !wasSlow && pm.config.HighLatencyRapidConfirmEnabled && pm.slowConsecutiveCount[target.TargetAddr] == 0 {
@@ -322,6 +346,7 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 			// Reached threshold - trigger alert
 			pm.slowTargets[target.TargetAddr] = true
 			pm.slowSince[target.TargetAddr] = now
+			pm.criticalSavePending = true // Critical event
 			logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (%.2fms > %dms) for %d consecutive checks",
 				formatTargetInfo(target), rttMs, threshold, currentCount)
 			log.Printf(logMsg)
@@ -353,20 +378,27 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 
 		if wasSlow {
 			// Was slow, now normal - check recovery confirmation
-			recoveryKey := target.TargetAddr + "_latency"
 			pm.recoveryConsecutiveCount[recoveryKey]++
 			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
 			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
 			
+			// Track when recovery started (first normal ping)
+			if currentRecoveryCount == 1 {
+				pm.recoveryStartedAt[recoveryKey] = now
+			}
+			
 			if currentRecoveryCount >= requiredRecoveryCount {
-				// Confirmed recovery
+				// Confirmed recovery - use recoveryStartedAt for accurate timing
+				recoveryTime := pm.recoveryStartedAt[recoveryKey]
 				pm.recoveryConsecutiveCount[recoveryKey] = 0
+				delete(pm.recoveryStartedAt, recoveryKey)
 				duration := time.Duration(0)
 				if startTime, exists := pm.slowSince[target.TargetAddr]; exists {
-					duration = time.Since(startTime)
+					duration = recoveryTime.Sub(startTime) // Accurate: from start to first normal
 				}
 				delete(pm.slowTargets, target.TargetAddr)
 				delete(pm.slowSince, target.TargetAddr)
+				pm.criticalSavePending = true // Critical event
 				log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms) confirmed after %d checks",
 					formatTargetInfo(target), rttMs, threshold, currentRecoveryCount)
 				pm.mu.Unlock()
@@ -391,8 +423,12 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 
 // rapidConfirmHighLatency performs rapid confirmation checks when high latency is first detected
 func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, detectedTime time.Time) {
-	// Wait initial delay to let transient spikes settle
-	time.Sleep(time.Duration(pm.config.HighLatencyRapidConfirmDelaySeconds) * time.Second)
+	// Wait initial delay to let transient spikes settle, but respect stop signal
+	select {
+	case <-time.After(time.Duration(pm.config.HighLatencyRapidConfirmDelaySeconds) * time.Second):
+	case <-pm.stopChan:
+		return // Graceful shutdown
+	}
 	
 	confirmCount := 0
 	totalChecks := pm.config.HighLatencyRapidConfirmCount
@@ -402,7 +438,11 @@ func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, det
 	
 	for i := 0; i < totalChecks; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(pm.config.HighLatencyRapidConfirmIntervalSeconds) * time.Second)
+			select {
+			case <-time.After(time.Duration(pm.config.HighLatencyRapidConfirmIntervalSeconds) * time.Second):
+			case <-pm.stopChan:
+				return // Graceful shutdown
+			}
 		}
 		
 		// Perform quick ping
@@ -445,6 +485,7 @@ func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, det
 		if pm.slowConsecutiveCount[target.TargetAddr] >= pm.config.HighLatencyConsecutiveCount {
 			pm.slowTargets[target.TargetAddr] = true
 			pm.slowSince[target.TargetAddr] = detectedTime
+			pm.criticalSavePending = true // Critical event - save immediately
 			logMsg := fmt.Sprintf("🟡 ALERT: %s has HIGH LATENCY (confirmed via rapid checks)",
 				formatTargetInfo(target))
 			log.Printf(logMsg)
@@ -472,8 +513,12 @@ func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, det
 
 // rapidConfirmPacketLoss performs rapid confirmation checks when packet loss is first detected
 func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, detectedTime time.Time) {
-	// Wait initial delay to let transient spikes settle
-	time.Sleep(time.Duration(pm.config.PacketLossRapidConfirmDelaySeconds) * time.Second)
+	// Wait initial delay to let transient spikes settle, but respect stop signal
+	select {
+	case <-time.After(time.Duration(pm.config.PacketLossRapidConfirmDelaySeconds) * time.Second):
+	case <-pm.stopChan:
+		return // Graceful shutdown
+	}
 	
 	confirmCount := 0
 	totalChecks := pm.config.PacketLossRapidConfirmCount
@@ -483,7 +528,11 @@ func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, 
 	
 	for i := 0; i < totalChecks; i++ {
 		if i > 0 {
-			time.Sleep(time.Duration(pm.config.PacketLossRapidConfirmIntervalSeconds) * time.Second)
+			select {
+			case <-time.After(time.Duration(pm.config.PacketLossRapidConfirmIntervalSeconds) * time.Second):
+			case <-pm.stopChan:
+				return // Graceful shutdown
+			}
 		}
 		
 		// Perform quick ping
@@ -526,6 +575,7 @@ func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, 
 		if pm.packetLossConsecutiveCount[target.TargetAddr] >= pm.config.PacketLossConsecutiveCount {
 			pm.packetLossTargets[target.TargetAddr] = true
 			pm.packetLossSince[target.TargetAddr] = detectedTime
+			pm.criticalSavePending = true // Critical event - save immediately
 			logMsg := fmt.Sprintf("🟠 ALERT: %s has PACKET LOSS (confirmed via rapid checks)",
 				formatTargetInfo(target))
 			log.Printf(logMsg)

@@ -37,6 +37,9 @@ type TargetStats struct {
 	HighLatencyCount  int64
 	PacketLossEvents  int64
 	RecentEvents      []EventRecord // Store recent events for reporting
+	// Jitter tracking (Welford's online algorithm for variance)
+	LatencyM2         float64 // Sum of squared differences from mean (for variance calculation)
+	LastSeen          time.Time // Last successful ping timestamp
 }
 
 // AlertKey uniquely identifies an alert type for a target

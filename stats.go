@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -26,7 +27,19 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 	stats.TotalChecks++
 	if success {
 		stats.SuccessfulChecks++
+		stats.LastSeen = time.Now() // Track last successful ping
+		
+		// Welford's online algorithm for variance/jitter calculation
+		// https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
+		n := float64(stats.SuccessfulChecks)
+		var oldMean float64
+		if n > 1 {
+			oldMean = stats.TotalLatency / (n - 1)
+		} // else oldMean = 0 (first data point)
 		stats.TotalLatency += latencyMs
+		newMean := stats.TotalLatency / n
+		// Update M2 for variance: M2 = M2 + (x - oldMean) * (x - newMean)
+		stats.LatencyM2 += (latencyMs - oldMean) * (latencyMs - newMean)
 		
 		if stats.MinLatency < 0 || latencyMs < stats.MinLatency {
 			stats.MinLatency = latencyMs
@@ -53,6 +66,29 @@ func (pm *PingMonitor) updateTargetStats(target Target, success bool, packetLoss
 	if packetLoss >= packetLossThreshold {
 		stats.PacketLossEvents++
 	}
+}
+
+// getLatencyVariance returns the variance of latency for a target
+func (pm *PingMonitor) getLatencyVariance(addr string) float64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	
+	stats, exists := pm.targetStats[addr]
+	if !exists || stats.SuccessfulChecks < 2 {
+		return 0
+	}
+	
+	// Variance = M2 / (n - 1) for sample variance
+	return stats.LatencyM2 / float64(stats.SuccessfulChecks-1)
+}
+
+// getLatencyStdDev returns the standard deviation (jitter) of latency for a target
+func (pm *PingMonitor) getLatencyStdDev(addr string) float64 {
+	variance := pm.getLatencyVariance(addr)
+	if variance <= 0 {
+		return 0
+	}
+	return math.Sqrt(variance)
 }
 
 // recordEvent records an event for summary reporting
@@ -755,11 +791,15 @@ func (pm *PingMonitor) startSummaryReportScheduler() {
 			log.Printf(msg)
 			pm.addLog(msg)
 			
-			time.Sleep(duration)
-			
-			log.Printf("📊 Generating %s summary report...", pm.config.SummaryReportSchedule)
-			if err := pm.sendSummaryReport(); err != nil {
-				log.Printf("❌ Failed to send summary report: %v", err)
+			// Wait for report time or stop signal
+			select {
+			case <-time.After(duration):
+				log.Printf("📊 Generating %s summary report...", pm.config.SummaryReportSchedule)
+				if err := pm.sendSummaryReport(); err != nil {
+					log.Printf("❌ Failed to send summary report: %v", err)
+				}
+			case <-pm.stopChan:
+				return // Graceful shutdown
 			}
 		}
 	}()

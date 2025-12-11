@@ -8,13 +8,37 @@ import (
 	"time"
 )
 
+// AlertState represents the persisted alert state for a target
+type AlertState struct {
+	IsDown        bool      `json:"is_down"`
+	DownSince     time.Time `json:"down_since,omitempty"`
+	IsSlow        bool      `json:"is_slow"`
+	SlowSince     time.Time `json:"slow_since,omitempty"`
+	HasPacketLoss bool      `json:"has_packet_loss"`
+	PacketLossSince time.Time `json:"packet_loss_since,omitempty"`
+}
+
+// ConsecutiveCounters represents the persisted consecutive counters for a target
+type ConsecutiveCounters struct {
+	SlowCount             int       `json:"slow_count"`
+	PacketLossCount       int       `json:"packet_loss_count"`
+	RecoveryCount         int       `json:"recovery_count"`          // For down recovery
+	LatencyRecoveryCount  int       `json:"latency_recovery_count"`  // For latency recovery
+	PacketLossRecoveryCount int     `json:"packet_loss_recovery_count"` // For packet loss recovery
+	RecoveryStartedAt     time.Time `json:"recovery_started_at,omitempty"`
+	LatencyRecoveryStartedAt time.Time `json:"latency_recovery_started_at,omitempty"`
+	PacketLossRecoveryStartedAt time.Time `json:"packet_loss_recovery_started_at,omitempty"`
+}
+
 // StateFile represents the persisted state
 type StateFile struct {
-	LastSaved      time.Time                  `json:"last_saved"`
-	Events         map[string][]EventRecord   `json:"events"`           // key: target address
-	TargetStats    map[string]*TargetStats    `json:"target_stats"`     // key: target address
-	StatsStartTime time.Time                  `json:"stats_start_time"` // When stats collection started
-	LatencyHistory map[string][]LatencyPoint  `json:"latency_history"`  // key: target address, for graphs
+	LastSaved           time.Time                      `json:"last_saved"`
+	Events              map[string][]EventRecord       `json:"events"`           // key: target address
+	TargetStats         map[string]*TargetStats        `json:"target_stats"`     // key: target address
+	StatsStartTime      time.Time                      `json:"stats_start_time"` // When stats collection started
+	LatencyHistory      map[string][]LatencyPoint      `json:"latency_history"`  // key: target address, for graphs
+	AlertStates         map[string]*AlertState         `json:"alert_states"`     // key: target address
+	ConsecutiveCounters map[string]*ConsecutiveCounters `json:"consecutive_counters"` // key: target address
 }
 
 // saveState saves the current incidents to disk
@@ -27,11 +51,13 @@ func (pm *PingMonitor) saveState() error {
 	
 	// Collect all events and stats from all targets
 	state := StateFile{
-		LastSaved:      time.Now(),
-		Events:         make(map[string][]EventRecord),
-		TargetStats:    make(map[string]*TargetStats),
-		StatsStartTime: pm.statsStartTime,
-		LatencyHistory: make(map[string][]LatencyPoint),
+		LastSaved:           time.Now(),
+		Events:              make(map[string][]EventRecord),
+		TargetStats:         make(map[string]*TargetStats),
+		StatsStartTime:      pm.statsStartTime,
+		LatencyHistory:      make(map[string][]LatencyPoint),
+		AlertStates:         make(map[string]*AlertState),
+		ConsecutiveCounters: make(map[string]*ConsecutiveCounters),
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
@@ -54,6 +80,8 @@ func (pm *PingMonitor) saveState() error {
 			MaxPacketLoss:     stats.MaxPacketLoss,
 			HighLatencyCount:  stats.HighLatencyCount,
 			PacketLossEvents:  stats.PacketLossEvents,
+			LatencyM2:         stats.LatencyM2,
+			LastSeen:          stats.LastSeen,
 			RecentEvents:      nil, // Don't duplicate events here, saved separately
 		}
 		state.TargetStats[addr] = statsCopy
@@ -70,6 +98,49 @@ func (pm *PingMonitor) saveState() error {
 		if len(validEvents) > 0 {
 			state.Events[addr] = validEvents
 			}
+		}
+		
+		// Save alert states
+		alertState := &AlertState{
+			IsDown:          pm.downTargets[addr],
+			IsSlow:          pm.slowTargets[addr],
+			HasPacketLoss:   pm.packetLossTargets[addr],
+		}
+		if alertState.IsDown {
+			alertState.DownSince = pm.downSince[addr]
+		}
+		if alertState.IsSlow {
+			alertState.SlowSince = pm.slowSince[addr]
+		}
+		if alertState.HasPacketLoss {
+			alertState.PacketLossSince = pm.packetLossSince[addr]
+		}
+		// Only save if there's any alert state
+		if alertState.IsDown || alertState.IsSlow || alertState.HasPacketLoss {
+			state.AlertStates[addr] = alertState
+		}
+		
+		// Save consecutive counters
+		counters := &ConsecutiveCounters{
+			SlowCount:               pm.slowConsecutiveCount[addr],
+			PacketLossCount:         pm.packetLossConsecutiveCount[addr],
+			RecoveryCount:           pm.recoveryConsecutiveCount[addr],
+			LatencyRecoveryCount:    pm.recoveryConsecutiveCount[addr+"_latency"],
+			PacketLossRecoveryCount: pm.recoveryConsecutiveCount[addr+"_packetloss"],
+		}
+		if t, exists := pm.recoveryStartedAt[addr]; exists {
+			counters.RecoveryStartedAt = t
+		}
+		if t, exists := pm.recoveryStartedAt[addr+"_latency"]; exists {
+			counters.LatencyRecoveryStartedAt = t
+		}
+		if t, exists := pm.recoveryStartedAt[addr+"_packetloss"]; exists {
+			counters.PacketLossRecoveryStartedAt = t
+		}
+		// Only save if there are any non-zero counters
+		if counters.SlowCount > 0 || counters.PacketLossCount > 0 || counters.RecoveryCount > 0 ||
+			counters.LatencyRecoveryCount > 0 || counters.PacketLossRecoveryCount > 0 {
+			state.ConsecutiveCounters[addr] = counters
 		}
 	}
 	
@@ -185,6 +256,8 @@ func (pm *PingMonitor) loadState() error {
 			stats.MaxPacketLoss = savedStats.MaxPacketLoss
 			stats.HighLatencyCount = savedStats.HighLatencyCount
 			stats.PacketLossEvents = savedStats.PacketLossEvents
+			stats.LatencyM2 = savedStats.LatencyM2   // For jitter calculation
+			stats.LastSeen = savedStats.LastSeen     // Last successful ping
 			restoredStatsCount++
 		}
 	}
@@ -232,8 +305,75 @@ func (pm *PingMonitor) loadState() error {
 		}
 	}
 
-	log.Printf("💾 Restored %d events, %d target stats, and %d latency points from state file (saved: %s)", 
-		restoredEventsCount, restoredStatsCount, restoredLatencyPoints, state.LastSaved.Format("2006-01-02 15:04:05"))
+	// Restore alert states
+	restoredAlertStates := 0
+	for addr, alertState := range state.AlertStates {
+		// Only restore if target still exists
+		if _, exists := pm.targetStats[addr]; !exists {
+			continue
+		}
+		
+		if alertState.IsDown {
+			pm.downTargets[addr] = true
+			pm.downSince[addr] = alertState.DownSince
+			log.Printf("🔴 Restored DOWN state for %s (since %s)", addr, alertState.DownSince.Format("15:04:05"))
+			restoredAlertStates++
+		}
+		if alertState.IsSlow {
+			pm.slowTargets[addr] = true
+			pm.slowSince[addr] = alertState.SlowSince
+			log.Printf("🟡 Restored HIGH LATENCY state for %s (since %s)", addr, alertState.SlowSince.Format("15:04:05"))
+			restoredAlertStates++
+		}
+		if alertState.HasPacketLoss {
+			pm.packetLossTargets[addr] = true
+			pm.packetLossSince[addr] = alertState.PacketLossSince
+			log.Printf("🟠 Restored PACKET LOSS state for %s (since %s)", addr, alertState.PacketLossSince.Format("15:04:05"))
+			restoredAlertStates++
+		}
+	}
+
+	// Restore consecutive counters
+	restoredCounters := 0
+	for addr, counters := range state.ConsecutiveCounters {
+		// Only restore if target still exists
+		if _, exists := pm.targetStats[addr]; !exists {
+			continue
+		}
+		
+		if counters.SlowCount > 0 {
+			pm.slowConsecutiveCount[addr] = counters.SlowCount
+			restoredCounters++
+		}
+		if counters.PacketLossCount > 0 {
+			pm.packetLossConsecutiveCount[addr] = counters.PacketLossCount
+			restoredCounters++
+		}
+		if counters.RecoveryCount > 0 {
+			pm.recoveryConsecutiveCount[addr] = counters.RecoveryCount
+			if !counters.RecoveryStartedAt.IsZero() {
+				pm.recoveryStartedAt[addr] = counters.RecoveryStartedAt
+			}
+			restoredCounters++
+		}
+		if counters.LatencyRecoveryCount > 0 {
+			pm.recoveryConsecutiveCount[addr+"_latency"] = counters.LatencyRecoveryCount
+			if !counters.LatencyRecoveryStartedAt.IsZero() {
+				pm.recoveryStartedAt[addr+"_latency"] = counters.LatencyRecoveryStartedAt
+			}
+			restoredCounters++
+		}
+		if counters.PacketLossRecoveryCount > 0 {
+			pm.recoveryConsecutiveCount[addr+"_packetloss"] = counters.PacketLossRecoveryCount
+			if !counters.PacketLossRecoveryStartedAt.IsZero() {
+				pm.recoveryStartedAt[addr+"_packetloss"] = counters.PacketLossRecoveryStartedAt
+			}
+			restoredCounters++
+		}
+	}
+
+	log.Printf("💾 Restored %d events, %d target stats, %d latency points, %d alert states, %d counters from state file (saved: %s)", 
+		restoredEventsCount, restoredStatsCount, restoredLatencyPoints, restoredAlertStates, restoredCounters, state.LastSaved.Format("2006-01-02 15:04:05"))
 
 	return nil
 }
@@ -281,8 +421,13 @@ func (pm *PingMonitor) startStatsCleanupScheduler() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		
-		for range ticker.C {
-			pm.cleanupOldStats()
+		for {
+			select {
+			case <-ticker.C:
+				pm.cleanupOldStats()
+			case <-pm.stopChan:
+				return // Graceful shutdown
+			}
 		}
 	}()
 }

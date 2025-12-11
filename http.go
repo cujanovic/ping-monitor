@@ -968,8 +968,13 @@ func (pm *PingMonitor) startHTTPServer() {
 		go func() {
 			ticker := time.NewTicker(5 * time.Minute)
 			defer ticker.Stop()
-			for range ticker.C {
-				pm.httpRateLimiter.Cleanup()
+			for {
+				select {
+				case <-ticker.C:
+					pm.httpRateLimiter.Cleanup()
+				case <-pm.stopChan:
+					return // Graceful shutdown
+				}
 			}
 		}()
 	}
