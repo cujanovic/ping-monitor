@@ -264,7 +264,7 @@ func (pm *PingMonitor) validateReturnURL(returnURL string) string {
 	
 	// Explicit whitelist: only allow known-safe paths
 	switch pathWithoutQuery {
-	case "/", "/reports", "/report_now", "/report_all":
+	case "/", "/reports", "/report_now", "/report_all", "/reports/graphs":
 		return returnURL
 	default:
 		log.Printf("⚠️  Invalid return URL (not in whitelist): %s", returnURL)
@@ -417,6 +417,8 @@ func (pm *PingMonitor) handleLogin(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/report_now", http.StatusSeeOther)
 		case "/report_all":
 			http.Redirect(w, r, "/report_all", http.StatusSeeOther)
+		case "/reports/graphs":
+			http.Redirect(w, r, "/reports/graphs", http.StatusSeeOther)
 		default:
 			// If validation somehow failed, redirect to root
 			http.Redirect(w, r, "/", http.StatusSeeOther)
