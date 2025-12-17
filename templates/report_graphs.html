@@ -294,7 +294,7 @@
 		<div class="chart-container" id="latencyChartContainer">
 			<div class="chart-title">
 				<span>📊 Latency Over Time</span>
-				<button class="reset-zoom-btn" onclick="resetZoom('latency')">🔍 Reset Zoom</button>
+				<button class="reset-zoom-btn" data-chart="latency">🔍 Reset Zoom</button>
 			</div>
 			<canvas id="latencyChart"></canvas>
 		</div>
@@ -302,7 +302,7 @@
 		<div class="chart-container" id="packetLossChartContainer">
 			<div class="chart-title">
 				<span>📉 Packet Loss Over Time</span>
-				<button class="reset-zoom-btn" onclick="resetZoom('packetLoss')">🔍 Reset Zoom</button>
+				<button class="reset-zoom-btn" data-chart="packetLoss">🔍 Reset Zoom</button>
 			</div>
 			<canvas id="packetLossChart"></canvas>
 		</div>
@@ -310,7 +310,7 @@
 		<div class="chart-container" id="percentilesChartContainer">
 			<div class="chart-title">
 				<span>🎯 Latency Percentiles (P50/P90/P95/P99)</span>
-				<button class="reset-zoom-btn" onclick="resetZoom('percentiles')">🔍 Reset Zoom</button>
+				<button class="reset-zoom-btn" data-chart="percentiles">🔍 Reset Zoom</button>
 			</div>
 			<canvas id="percentilesChart"></canvas>
 		</div>
@@ -318,7 +318,7 @@
 		<div class="chart-container" id="successRateChartContainer">
 			<div class="chart-title">
 				<span>✅ Success Rate Over Time</span>
-				<button class="reset-zoom-btn" onclick="resetZoom('successRate')">🔍 Reset Zoom</button>
+				<button class="reset-zoom-btn" data-chart="successRate">🔍 Reset Zoom</button>
 			</div>
 			<canvas id="successRateChart"></canvas>
 		</div>
@@ -331,7 +331,7 @@
 		<div class="chart-container" id="jitterChartContainer">
 			<div class="chart-title">
 				<span>📈 Jitter (Latency Variance) Over Time</span>
-				<button class="reset-zoom-btn" onclick="resetZoom('jitter')">🔍 Reset Zoom</button>
+				<button class="reset-zoom-btn" data-chart="jitter">🔍 Reset Zoom</button>
 			</div>
 			<canvas id="jitterChart"></canvas>
 		</div>

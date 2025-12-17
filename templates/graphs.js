@@ -844,6 +844,17 @@ document.addEventListener('DOMContentLoaded', function() {
 		});
 	}
 	
+	// Reset zoom button handlers
+	var resetZoomBtns = document.querySelectorAll('.reset-zoom-btn');
+	resetZoomBtns.forEach(function(btn) {
+		btn.addEventListener('click', function() {
+			var chartName = this.getAttribute('data-chart');
+			if (chartName && charts[chartName]) {
+				charts[chartName].resetZoom();
+			}
+		});
+	});
+	
 	// Initial load
 	refreshData();
 	
