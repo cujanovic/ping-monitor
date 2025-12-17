@@ -298,15 +298,200 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	if err := pm.templates.ExecuteTemplate(w, "root.html", data); err != nil {
+		LogError("Template error", "template", "root.html", "error", err)
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		log.Printf("⚠️  Template error: %v", err)
 	}
 }
 
+// StatusResponse represents the health status response
+type StatusResponse struct {
+	Status          string                 `json:"status"`           // "healthy", "degraded", "unhealthy"
+	ServiceUptime   string                 `json:"service_uptime"`  // Human-readable uptime
+	ServiceUptimeSeconds float64           `json:"service_uptime_seconds"`
+	Targets         StatusTargets          `json:"targets"`
+	LastStateSave   *string                `json:"last_state_save,omitempty"` // ISO 8601 timestamp
+	StateFileHealth string                 `json:"state_file_health"` // "ok", "missing", "stale", "error"
+	Timestamp       string                 `json:"timestamp"` // ISO 8601 timestamp
+}
+
+// StatusTargets contains target-related health information
+type StatusTargets struct {
+	Total      int                    `json:"total"`
+	Healthy    int                    `json:"healthy"`
+	Issues     int                    `json:"issues"`
+	Critical   int                    `json:"critical"`
+	Down       int                    `json:"down"`
+	Slow       int                    `json:"slow"`
+	PacketLoss int                    `json:"packet_loss"`
+	Details    []StatusTargetDetail    `json:"details,omitempty"` // Only included if ?details=true
+}
+
+// StatusTargetDetail contains detailed information about a target
+type StatusTargetDetail struct {
+	Name          string  `json:"name"`
+	Address       string  `json:"address"`
+	Status        string  `json:"status"` // "healthy", "down", "slow", "packet_loss", "multiple"
+	LastLatencyMs float64 `json:"last_latency_ms,omitempty"`
+	LastSeen      *string `json:"last_seen,omitempty"` // ISO 8601 timestamp
+	UptimePercent float64 `json:"uptime_percent,omitempty"`
+}
+
 // handleStatus handles the status endpoint
 func (pm *PingMonitor) handleStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "OK\n")
+	w.Header().Set("Content-Type", "application/json")
+	
+	includeDetails := r.URL.Query().Get("details") == "true"
+	
+	// Calculate service uptime
+	uptime := time.Since(pm.serviceStartTime)
+	uptimeSeconds := uptime.Seconds()
+	
+	// Get target statistics
+	pm.mu.RLock()
+	downCount := 0
+	slowCount := 0
+	packetLossCount := 0
+	healthyCount := 0
+	issueCount := 0
+	criticalCount := 0
+	
+	targetDetails := make([]StatusTargetDetail, 0, len(pm.config.Targets))
+	
+	for _, target := range pm.config.Targets {
+		isDown := pm.downTargets[target.TargetAddr]
+		isSlow := pm.slowTargets[target.TargetAddr]
+		hasPacketLoss := pm.packetLossTargets[target.TargetAddr]
+		
+		// Count by status
+		if isDown {
+			downCount++
+			criticalCount++
+		} else if isSlow || hasPacketLoss {
+			if isSlow {
+				slowCount++
+			}
+			if hasPacketLoss {
+				packetLossCount++
+			}
+			issueCount++
+		} else {
+			healthyCount++
+		}
+		
+		// Build details if requested
+		if includeDetails {
+			status := "healthy"
+			if isDown {
+				status = "down"
+			} else if isSlow && hasPacketLoss {
+				status = "multiple"
+			} else if isSlow {
+				status = "slow"
+			} else if hasPacketLoss {
+				status = "packet_loss"
+			}
+			
+			detail := StatusTargetDetail{
+				Name:          target.Name,
+				Address:       target.TargetAddr,
+				Status:         status,
+				LastLatencyMs: pm.lastLatency[target.TargetAddr],
+			}
+			
+			// Add stats if available
+			if stats, exists := pm.targetStats[target.TargetAddr]; exists && stats != nil {
+				if !stats.LastSeen.IsZero() {
+					lastSeenStr := stats.LastSeen.Format(time.RFC3339)
+					detail.LastSeen = &lastSeenStr
+				}
+				if stats.TotalChecks > 0 {
+					detail.UptimePercent = (float64(stats.SuccessfulChecks) / float64(stats.TotalChecks)) * 100
+				}
+			}
+			
+			targetDetails = append(targetDetails, detail)
+		}
+	}
+	
+	lastStateSave := pm.lastStateSave
+	pm.mu.RUnlock()
+	
+	// Check state file health
+	stateFileHealth := "ok"
+	var lastStateSaveStr *string
+	if pm.config.StateFilePath != "" {
+		if info, err := os.Stat(pm.config.StateFilePath); err != nil {
+			if os.IsNotExist(err) {
+				stateFileHealth = "missing"
+			} else {
+				stateFileHealth = "error"
+			}
+		} else {
+			// Check if state file is stale (not saved in last 5 minutes)
+			if !lastStateSave.IsZero() {
+				if time.Since(lastStateSave) > 5*time.Minute {
+					stateFileHealth = "stale"
+				}
+				formatted := lastStateSave.Format(time.RFC3339)
+				lastStateSaveStr = &formatted
+			} else {
+				// Use file modification time as fallback
+				if time.Since(info.ModTime()) > 5*time.Minute {
+					stateFileHealth = "stale"
+				}
+				formatted := info.ModTime().Format(time.RFC3339)
+				lastStateSaveStr = &formatted
+			}
+		}
+	} else {
+		stateFileHealth = "disabled"
+	}
+	
+	// Determine overall status
+	overallStatus := "healthy"
+	if criticalCount > 0 {
+		overallStatus = "unhealthy"
+	} else if issueCount > 0 {
+		overallStatus = "degraded"
+	}
+	
+	response := StatusResponse{
+		Status:            overallStatus,
+		ServiceUptime:     formatDuration(uptime),
+		ServiceUptimeSeconds: uptimeSeconds,
+		Targets: StatusTargets{
+			Total:      len(pm.config.Targets),
+			Healthy:    healthyCount,
+			Issues:     issueCount,
+			Critical:   criticalCount,
+			Down:       downCount,
+			Slow:       slowCount,
+			PacketLoss: packetLossCount,
+			Details:    targetDetails,
+		},
+		LastStateSave:   lastStateSaveStr,
+		StateFileHealth: stateFileHealth,
+		Timestamp:       time.Now().Format(time.RFC3339),
+	}
+	
+	// Set HTTP status code based on health
+	statusCode := http.StatusOK
+	if overallStatus == "unhealthy" {
+		statusCode = http.StatusServiceUnavailable
+	} else if overallStatus == "degraded" {
+		statusCode = http.StatusOK // Still OK but degraded
+	}
+	w.WriteHeader(statusCode)
+	
+	// Encode JSON response
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(response); err != nil {
+		LogError("Failed to encode status response", "error", err)
+		log.Printf("⚠️  Failed to encode status response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // handleStaticJS serves the JavaScript file

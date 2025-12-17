@@ -15,6 +15,7 @@ func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, f
 	// Resolve target address using DNS cache (handles both IPs and DNS names)
 	resolvedAddr, ipChanged, err := pm.dnsCache.Resolve(target.TargetAddr)
 	if err != nil {
+		LogWarn("DNS resolution failed", "target", formatTargetInfo(target), "error", err)
 		log.Printf("⚠️  DNS resolution failed for %s: %v", formatTargetInfo(target), err)
 		return false, 100, 0
 	}
@@ -23,6 +24,7 @@ func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, f
 	if ipChanged {
 		logMsg := fmt.Sprintf("🔄 DDNS IP changed for %s: now resolves to %s", 
 			formatTargetInfo(target), resolvedAddr)
+		LogInfo("DDNS IP changed", "target", formatTargetInfo(target), "new_ip", resolvedAddr)
 		log.Printf(logMsg)
 		pm.addLog(logMsg)
 		pm.recordEvent(target, "ddns_ip_changed", 0, 0, 0)
@@ -30,6 +32,7 @@ func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, f
 	
 	pinger, err := ping.NewPinger(resolvedAddr)
 	if err != nil {
+		LogError("Error creating pinger", "target", formatTargetInfo(target), "resolved_addr", resolvedAddr, "error", err)
 		log.Printf("⚠️  Error creating pinger for %s (%s): %v", 
 			formatTargetInfo(target), resolvedAddr, err)
 		return false, 100, 0
@@ -41,6 +44,7 @@ func (pm *PingMonitor) pingTarget(target Target, updateStats bool) (bool, int, f
 
 	err = pinger.Run()
 	if err != nil {
+		LogError("Error pinging target", "target", formatTargetInfo(target), "error", err)
 		log.Printf("⚠️  Error pinging %s: %v", formatTargetInfo(target), err)
 		return false, 100, 0
 	}
@@ -113,6 +117,7 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 	// Panic recovery (concurrency now handled by worker pool)
 	defer func() {
 		if r := recover(); r != nil {
+			LogError("Recovered from panic in monitorTarget", "target", formatTargetInfo(target), "panic", r)
 			log.Printf("🆘 Recovered from panic in monitorTarget for %s: %v",
 				formatTargetInfo(target), r)
 		}

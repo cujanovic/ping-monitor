@@ -141,6 +141,106 @@ function resetZoom(chartName) {
 	}
 }
 
+// Export data to CSV
+function exportToCSV(data) {
+	if (!data || !data.targets || data.targets.length === 0) {
+		alert('No data available to export');
+		return;
+	}
+	
+	var csv = [];
+	// CSV header
+	csv.push('Target Name,Target Address,Timestamp,Latency (ms),Success,Packet Loss (%)');
+	
+	// Filter targets based on current filter
+	var filteredTargets = data.targets.filter(function(target) {
+		return targetMatchesFilter(target);
+	});
+	
+	// Add data rows
+	filteredTargets.forEach(function(target) {
+		target.points.forEach(function(point) {
+			var timestamp = new Date(point.timestamp).toISOString();
+			var row = [
+				escapeCSV(target.name),
+				escapeCSV(target.address),
+				timestamp,
+				point.latency_ms.toFixed(2),
+				point.success ? 'true' : 'false',
+				point.packet_loss.toString()
+			];
+			csv.push(row.join(','));
+		});
+	});
+	
+	// Create download
+	var csvContent = csv.join('\n');
+	var blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+	var url = URL.createObjectURL(blob);
+	var link = document.createElement('a');
+	link.href = url;
+	link.download = 'ping-monitor-data-' + new Date().toISOString().split('T')[0] + '.csv';
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+	URL.revokeObjectURL(url);
+}
+
+// Export data to JSON
+function exportToJSON(data) {
+	if (!data || !data.targets || data.targets.length === 0) {
+		alert('No data available to export');
+		return;
+	}
+	
+	// Filter targets based on current filter
+	var filteredData = {
+		exported_at: new Date().toISOString(),
+		time_range_hours: document.getElementById('hoursSelect') ? document.getElementById('hoursSelect').value : 24,
+		targets: data.targets.filter(function(target) {
+			return targetMatchesFilter(target);
+		}).map(function(target) {
+			return {
+				name: target.name,
+				address: target.address,
+				points: target.points.map(function(point) {
+					return {
+						timestamp: point.timestamp,
+						latency_ms: point.latency_ms,
+						success: point.success,
+						packet_loss: point.packet_loss
+					};
+				})
+			};
+		})
+	};
+	
+	// Create download
+	var jsonContent = JSON.stringify(filteredData, null, 2);
+	var blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+	var url = URL.createObjectURL(blob);
+	var link = document.createElement('a');
+	link.href = url;
+	link.download = 'ping-monitor-data-' + new Date().toISOString().split('T')[0] + '.json';
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+	URL.revokeObjectURL(url);
+}
+
+// Escape CSV field values
+function escapeCSV(value) {
+	if (value === null || value === undefined) {
+		return '';
+	}
+	var str = String(value);
+	// If contains comma, quote, or newline, wrap in quotes and escape quotes
+	if (str.indexOf(',') !== -1 || str.indexOf('"') !== -1 || str.indexOf('\n') !== -1) {
+		return '"' + str.replace(/"/g, '""') + '"';
+	}
+	return str;
+}
+
 // Zoom plugin options for time-based charts
 function getZoomOptions() {
 	return {
@@ -854,6 +954,30 @@ document.addEventListener('DOMContentLoaded', function() {
 			}
 		});
 	});
+	
+	// Export CSV button handler
+	var exportCSVBtn = document.getElementById('exportCSVBtn');
+	if (exportCSVBtn) {
+		exportCSVBtn.addEventListener('click', function() {
+			if (cachedData) {
+				exportToCSV(cachedData);
+			} else {
+				alert('No data available to export. Please wait for data to load.');
+			}
+		});
+	}
+	
+	// Export JSON button handler
+	var exportJSONBtn = document.getElementById('exportJSONBtn');
+	if (exportJSONBtn) {
+		exportJSONBtn.addEventListener('click', function() {
+			if (cachedData) {
+				exportToJSON(cachedData);
+			} else {
+				alert('No data available to export. Please wait for data to load.');
+			}
+		});
+	}
 	
 	// Initial load
 	refreshData();

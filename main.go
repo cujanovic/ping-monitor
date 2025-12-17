@@ -22,11 +22,14 @@ func main() {
 		return
 	}
 
-	log.Printf("🎯 Ping Monitor Service Starting...")
+	// Initialize structured logger
+	initLogger()
+	LogInfo("Ping Monitor Service Starting")
 	
 	// Load configuration
 	config, err := loadConfig("config.json")
 	if err != nil {
+		LogError("Failed to load configuration", "error", err)
 		log.Fatalf("❌ Failed to load configuration: %v", err)
 	}
 
@@ -49,10 +52,14 @@ func main() {
 
 	// Validate configuration
 	if err := ValidateConfig(config); err != nil {
+		LogError("Configuration validation failed", "error", err)
 		log.Fatalf("❌ %v", err)
 	}
 	
-	log.Printf("✅ Configuration loaded and validated successfully")
+	LogInfo("Configuration loaded and validated successfully", 
+		"targets", len(config.Targets),
+		"ping_interval", config.PingIntervalSeconds,
+		"http_enabled", config.HTTPEnabled)
 	
 	// Initialize and start ping monitor
 	monitor := NewPingMonitor(config)
@@ -63,6 +70,7 @@ func main() {
 	
 	go func() {
 		<-sigChan
+		LogInfo("Shutting down gracefully")
 		log.Printf("👋 Shutting down gracefully...")
 		
 		// Stop monitor (this will save state and clean up all goroutines)
