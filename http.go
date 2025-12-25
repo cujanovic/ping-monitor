@@ -92,7 +92,7 @@ func getClientIP(r *http.Request) string {
 // securityHeadersMiddleware adds security headers to responses
 func securityHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Content Security Policy - allow scripts from same origin and Chart.js CDN
+		// Content Security Policy - allow scripts from same origin
 		w.Header().Set("Content-Security-Policy", 
 			"default-src 'self'; "+
 			"script-src 'self'; "+
@@ -1174,11 +1174,23 @@ func (pm *PingMonitor) handleAPITargetDisable(w http.ResponseWriter, r *http.Req
 		targetAddr = req.Target
 	} else {
 		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
-		if err := r.ParseForm(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error": "invalid form data"}`))
-			return
+		// ParseMultipartForm handles both multipart and URL-encoded forms
+		if strings.HasPrefix(contentType, "multipart/form-data") {
+			// For multipart forms, parse with a reasonable size limit (10MB)
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "invalid multipart form data"}`))
+				return
+			}
+		} else {
+			// For URL-encoded forms
+			if err := r.ParseForm(); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "invalid form data"}`))
+				return
+			}
 		}
 		targetAddr = r.FormValue("target")
 	}
@@ -1258,11 +1270,23 @@ func (pm *PingMonitor) handleAPITargetEnable(w http.ResponseWriter, r *http.Requ
 		targetAddr = req.Target
 	} else {
 		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
-		if err := r.ParseForm(); err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`{"error": "invalid form data"}`))
-			return
+		// ParseMultipartForm handles both multipart and URL-encoded forms
+		if strings.HasPrefix(contentType, "multipart/form-data") {
+			// For multipart forms, parse with a reasonable size limit (10MB)
+			if err := r.ParseMultipartForm(10 << 20); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "invalid multipart form data"}`))
+				return
+			}
+		} else {
+			// For URL-encoded forms
+			if err := r.ParseForm(); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`{"error": "invalid form data"}`))
+				return
+			}
 		}
 		targetAddr = r.FormValue("target")
 	}
