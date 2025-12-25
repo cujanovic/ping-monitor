@@ -168,6 +168,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		IsDown            bool
 		IsSlow            bool
 		HasPacketLoss     bool
+		IsDisabled        bool   // Whether target is dynamically disabled
 		LatencyMs         float64 // Latest ping latency in ms
 		FailedChecks      int64   // Total down checks
 		HighLatencyChecks int64   // Total high latency checks
@@ -207,6 +208,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 			IsDown:            pm.downTargets[target.TargetAddr],
 			IsSlow:            pm.slowTargets[target.TargetAddr],
 			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			IsDisabled:        pm.disabledTargets[target.TargetAddr],
 			LatencyMs:         pm.lastLatency[target.TargetAddr],
 			FailedChecks:      failedChecks,
 			HighLatencyChecks: highLatencyChecks,
@@ -254,6 +256,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		Schedule         string
 		Timestamp        string
 		Targets          []TargetInfo
+		AuthEnabled      bool
 		RecentIncidents  []struct {
 			TargetName    string
 			TargetAddress string
@@ -283,6 +286,7 @@ func (pm *PingMonitor) handleRoot(w http.ResponseWriter, r *http.Request) {
 		Schedule:         schedule,
 		Timestamp:        pm.getReportTime().Format("2006-01-02 15:04:05"),
 		Targets:          targets,
+		AuthEnabled:      pm.config.AuthEnabled,
 		RecentIncidents:  incidents,
 		IncidentsHours:   pm.config.RecentIncidentsHours,
 		IncidentsSummary: summary,
@@ -663,6 +667,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 		IsDown            bool
 		IsSlow            bool
 		HasPacketLoss     bool
+		IsDisabled        bool   // Whether target is dynamically disabled
 		LatencyMs         float64 // Latest ping latency in ms
 		FailedChecks      int64   // Total down checks
 		HighLatencyChecks int64   // Total high latency checks
@@ -702,6 +707,7 @@ func (pm *PingMonitor) handleReportNow(w http.ResponseWriter, r *http.Request) {
 			IsDown:            pm.downTargets[target.TargetAddr],
 			IsSlow:            pm.slowTargets[target.TargetAddr],
 			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			IsDisabled:        pm.disabledTargets[target.TargetAddr],
 			LatencyMs:         pm.lastLatency[target.TargetAddr],
 			FailedChecks:      failedChecks,
 			HighLatencyChecks: highLatencyChecks,
@@ -873,6 +879,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 		IsDown            bool
 		IsSlow            bool
 		HasPacketLoss     bool
+		IsDisabled        bool   // Whether target is dynamically disabled
 		LatencyMs         float64 // Latest ping latency in ms
 		FailedChecks      int64   // Total down checks
 		HighLatencyChecks int64   // Total high latency checks
@@ -912,6 +919,7 @@ func (pm *PingMonitor) handleReportAll(w http.ResponseWriter, r *http.Request) {
 			IsDown:            pm.downTargets[target.TargetAddr],
 			IsSlow:            pm.slowTargets[target.TargetAddr],
 			HasPacketLoss:     pm.packetLossTargets[target.TargetAddr],
+			IsDisabled:        pm.disabledTargets[target.TargetAddr],
 			LatencyMs:         pm.lastLatency[target.TargetAddr],
 			FailedChecks:      failedChecks,
 			HighLatencyChecks: highLatencyChecks,
@@ -1141,6 +1149,174 @@ func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// handleAPITargetDisable handles disabling a target
+func (pm *PingMonitor) handleAPITargetDisable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(`{"error": "method not allowed"}`))
+		return
+	}
+
+	// Parse target address from form or JSON
+	var targetAddr string
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "application/json") {
+		var req struct {
+			Target string `json:"target"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "invalid request body"}`))
+			return
+		}
+		targetAddr = req.Target
+	} else {
+		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
+		if err := r.ParseForm(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "invalid form data"}`))
+			return
+		}
+		targetAddr = r.FormValue("target")
+	}
+
+	if targetAddr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "target parameter required"}`))
+		return
+	}
+
+	// Verify target exists
+	pm.mu.Lock()
+	targetExists := false
+	var targetName string
+	for _, target := range pm.config.Targets {
+		if target.TargetAddr == targetAddr {
+			targetExists = true
+			targetName = target.Name
+			break
+		}
+	}
+
+	if !targetExists {
+		pm.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "target not found"}`))
+		return
+	}
+
+	// Disable the target
+	pm.disabledTargets[targetAddr] = true
+	pm.mu.Unlock()
+
+	log.Printf("⏸️  Target disabled: %s (%s)", targetName, targetAddr)
+	pm.addLog(fmt.Sprintf("Target disabled: %s (%s)", targetName, targetAddr))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Target  string `json:"target"`
+	}{
+		Success: true,
+		Message: fmt.Sprintf("Target %s disabled", targetName),
+		Target:  targetAddr,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("⚠️  Failed to encode disable response: %v", err)
+	}
+}
+
+// handleAPITargetEnable handles enabling a target
+func (pm *PingMonitor) handleAPITargetEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(`{"error": "method not allowed"}`))
+		return
+	}
+
+	// Parse target address from form or JSON
+	var targetAddr string
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "application/json") {
+		var req struct {
+			Target string `json:"target"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "invalid request body"}`))
+			return
+		}
+		targetAddr = req.Target
+	} else {
+		// Handle form data (multipart/form-data or application/x-www-form-urlencoded)
+		if err := r.ParseForm(); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error": "invalid form data"}`))
+			return
+		}
+		targetAddr = r.FormValue("target")
+	}
+
+	if targetAddr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error": "target parameter required"}`))
+		return
+	}
+
+	// Verify target exists
+	pm.mu.Lock()
+	targetExists := false
+	var targetName string
+	for _, target := range pm.config.Targets {
+		if target.TargetAddr == targetAddr {
+			targetExists = true
+			targetName = target.Name
+			break
+		}
+	}
+
+	if !targetExists {
+		pm.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"error": "target not found"}`))
+		return
+	}
+
+	// Enable the target
+	delete(pm.disabledTargets, targetAddr)
+	pm.mu.Unlock()
+
+	log.Printf("▶️  Target enabled: %s (%s)", targetName, targetAddr)
+	pm.addLog(fmt.Sprintf("Target enabled: %s (%s)", targetName, targetAddr))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+		Target  string `json:"target"`
+	}{
+		Success: true,
+		Message: fmt.Sprintf("Target %s enabled", targetName),
+		Target:  targetAddr,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("⚠️  Failed to encode enable response: %v", err)
+	}
+}
+
 // startHTTPServer starts the HTTP server
 func (pm *PingMonitor) startHTTPServer() {
 	if !pm.config.HTTPEnabled {
@@ -1166,6 +1342,8 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/report_all", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportAll))))
 	http.HandleFunc("/reports/graphs", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleReportsGraphs))))
 	http.HandleFunc("/api/latency-history", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPILatencyHistory))))
+	http.HandleFunc("/api/target/disable", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetDisable))))
+	http.HandleFunc("/api/target/enable", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetEnable))))
 	
 	if pm.httpRateLimiter != nil {
 		go func() {

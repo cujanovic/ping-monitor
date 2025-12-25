@@ -48,6 +48,7 @@ type PingMonitor struct {
 	lastStateSave      time.Time        // Last time state was saved to disk
 	stateSavePending   bool             // Flag indicating state needs to be saved
 	criticalSavePending bool            // Flag for critical events that need immediate save
+	disabledTargets    map[string]bool // Dynamically disabled targets (key: target address)
 	stopChan           chan struct{}    // Signal to stop all goroutines
 	mu                 sync.RWMutex
 	emailMu            sync.Mutex
@@ -245,6 +246,7 @@ func NewPingMonitor(config Config) *PingMonitor {
 		statsCache:         statsCache,
 		incidentsBuffer:    incidentsBuffer,
 		targetLocks:        targetLocks,
+		disabledTargets:    make(map[string]bool),
 	}
 
 	return pm
@@ -467,9 +469,17 @@ func (pm *PingMonitor) Start() {
 // startMonitoringLoop runs the monitoring loop for a single target
 func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interval time.Duration) {
 	time.Sleep(delay)
-	// Cache time.Now() once per cycle and pass it down
-	now := time.Now()
-	pm.monitorTarget(t, now, true) // Initial ping counts in stats
+	
+	// Check if target is disabled before initial ping
+	pm.mu.RLock()
+	isDisabled := pm.disabledTargets[t.TargetAddr]
+	pm.mu.RUnlock()
+	
+	if !isDisabled {
+		// Cache time.Now() once per cycle and pass it down
+		now := time.Now()
+		pm.monitorTarget(t, now, true) // Initial ping counts in stats
+	}
 
 	alertInterval := time.Duration(pm.config.AlertStatePingIntervalSeconds) * time.Second
 	wasInAlertState := false
@@ -501,6 +511,16 @@ func (pm *PingMonitor) startMonitoringLoop(t Target, delay time.Duration, interv
 		// Wait for the interval or stop signal
 		select {
 		case <-time.After(waitDuration):
+			// Check if target is disabled before monitoring
+			pm.mu.RLock()
+			isDisabled := pm.disabledTargets[t.TargetAddr]
+			pm.mu.RUnlock()
+			
+			if isDisabled {
+				// Target is disabled, skip monitoring but continue loop
+				continue
+			}
+			
 			now := time.Now()
 			pm.monitorTarget(t, now, updateStats)
 		case <-pm.stopChan:

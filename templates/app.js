@@ -126,5 +126,74 @@ window.addEventListener('DOMContentLoaded', function() {
 			this.style.borderColor = '#444';
 		});
 	}
+	
+	// Attach event listeners to disable/enable buttons (using event delegation for security)
+	document.addEventListener('click', function(e) {
+		if (e.target.classList.contains('btn-disable-target')) {
+			const targetAddr = e.target.getAttribute('data-target-addr');
+			const targetName = e.target.getAttribute('data-target-name');
+			if (targetAddr && targetName) {
+				disableTarget(targetAddr, targetName);
+			}
+		} else if (e.target.classList.contains('btn-enable-target')) {
+			const targetAddr = e.target.getAttribute('data-target-addr');
+			const targetName = e.target.getAttribute('data-target-name');
+			if (targetAddr && targetName) {
+				enableTarget(targetAddr, targetName);
+			}
+		}
+	});
 });
+
+// Disable a target from monitoring
+function disableTarget(targetAddr, targetName) {
+	if (!confirm(`Are you sure you want to disable monitoring for "${targetName}"?\n\nThis will stop all ping checks for this target until you re-enable it.`)) {
+		return;
+	}
+	
+	const formData = new FormData();
+	formData.append('target', targetAddr);
+	
+	fetch('/api/target/disable', {
+		method: 'POST',
+		body: formData
+	})
+	.then(response => response.json())
+	.then(data => {
+		if (data.success) {
+			// Reload the page to show updated status
+			window.location.reload();
+		} else {
+			alert('Failed to disable target: ' + (data.error || 'Unknown error'));
+		}
+	})
+	.catch(error => {
+		console.error('Error disabling target:', error);
+		alert('Error disabling target: ' + error.message);
+	});
+}
+
+// Enable a target for monitoring
+function enableTarget(targetAddr, targetName) {
+	const formData = new FormData();
+	formData.append('target', targetAddr);
+	
+	fetch('/api/target/enable', {
+		method: 'POST',
+		body: formData
+	})
+	.then(response => response.json())
+	.then(data => {
+		if (data.success) {
+			// Reload the page to show updated status
+			window.location.reload();
+		} else {
+			alert('Failed to enable target: ' + (data.error || 'Unknown error'));
+		}
+	})
+	.catch(error => {
+		console.error('Error enabling target:', error);
+		alert('Error enabling target: ' + error.message);
+	});
+}
 

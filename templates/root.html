@@ -508,12 +508,21 @@
 						<strong style="display: block; word-wrap: break-word; overflow-wrap: break-word;"><a href="http://{{.Address}}" target="_blank" class="target-link">{{.Name}}</a></strong>
 						<span style="color: #888; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word;">{{.Label}}: {{.Address}}</span>
 						{{if gt .LatencyMs 0.0}}<span style="color: #569cd6; font-size: 11px; display: block; margin-top: 2px;">⚡ {{printf "%.2f" .LatencyMs}}ms</span>{{end}}
+						{{if .IsDisabled}}<span style="color: #999; font-size: 11px; display: block; margin-top: 2px;">⏸️ Monitoring disabled</span>{{end}}
 					</div>
 					<div class="target-status">
 						{{if .IsDown}}<span class="badge badge-down">DOWN</span>{{end}}
 						{{if .IsSlow}}<span class="badge badge-slow">HIGH LATENCY</span>{{end}}
 						{{if .HasPacketLoss}}<span class="badge badge-loss">PACKET LOSS</span>{{end}}
-						{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss)}}<span class="badge badge-ok">OK</span>{{end}}
+						{{if .IsDisabled}}<span class="badge" style="background: #3a3a3a; color: #999;">DISABLED</span>{{end}}
+						{{if and (not .IsDown) (not .IsSlow) (not .HasPacketLoss) (not .IsDisabled)}}<span class="badge badge-ok">OK</span>{{end}}
+						{{if $.AuthEnabled}}
+						{{if .IsDisabled}}
+						<button class="btn-enable-target" data-target-addr="{{.Address}}" data-target-name="{{.Name}}" style="margin-left: 8px; padding: 4px 12px; font-size: 11px; background: #48bb78; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Enable</button>
+						{{else}}
+						<button class="btn-disable-target" data-target-addr="{{.Address}}" data-target-name="{{.Name}}" style="margin-left: 8px; padding: 4px 12px; font-size: 11px; background: #ed8936; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Disable</button>
+						{{end}}
+						{{end}}
 					</div>
 				</div>
 				{{end}}
