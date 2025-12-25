@@ -1228,6 +1228,7 @@ func (pm *PingMonitor) handleAPITargetDisable(w http.ResponseWriter, r *http.Req
 
 	// Disable the target
 	pm.disabledTargets[targetAddr] = true
+	pm.stateSavePending = true // Trigger state save
 	pm.mu.Unlock()
 
 	log.Printf("⏸️  Target disabled: %s (%s)", targetName, targetAddr)
@@ -1324,6 +1325,7 @@ func (pm *PingMonitor) handleAPITargetEnable(w http.ResponseWriter, r *http.Requ
 
 	// Enable the target
 	delete(pm.disabledTargets, targetAddr)
+	pm.stateSavePending = true // Trigger state save
 	pm.mu.Unlock()
 
 	log.Printf("▶️  Target enabled: %s (%s)", targetName, targetAddr)

@@ -39,6 +39,7 @@ type StateFile struct {
 	LatencyHistory      map[string][]LatencyPoint      `json:"latency_history"`  // key: target address, for graphs
 	AlertStates         map[string]*AlertState         `json:"alert_states"`     // key: target address
 	ConsecutiveCounters map[string]*ConsecutiveCounters `json:"consecutive_counters"` // key: target address
+	DisabledTargets     map[string]bool                `json:"disabled_targets"`     // key: target address
 }
 
 // saveState saves the current incidents to disk
@@ -58,6 +59,7 @@ func (pm *PingMonitor) saveState() error {
 		LatencyHistory:      make(map[string][]LatencyPoint),
 		AlertStates:         make(map[string]*AlertState),
 		ConsecutiveCounters: make(map[string]*ConsecutiveCounters),
+		DisabledTargets:     make(map[string]bool),
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
@@ -154,6 +156,18 @@ func (pm *PingMonitor) saveState() error {
 		}
 		if len(validPoints) > 0 {
 			state.LatencyHistory[addr] = validPoints
+		}
+	}
+	
+	// Save disabled targets (all entries in map are true, but check for safety)
+	// Only save targets that still exist in config (handles removed targets)
+	for addr := range pm.disabledTargets {
+		// Verify target still exists in config before saving
+		for _, target := range pm.config.Targets {
+			if target.TargetAddr == addr {
+				state.DisabledTargets[addr] = true
+				break
+			}
 		}
 	}
 	
@@ -372,8 +386,29 @@ func (pm *PingMonitor) loadState() error {
 		}
 	}
 
-	log.Printf("💾 Restored %d events, %d target stats, %d latency points, %d alert states, %d counters from state file (saved: %s)", 
-		restoredEventsCount, restoredStatsCount, restoredLatencyPoints, restoredAlertStates, restoredCounters, state.LastSaved.Format("2006-01-02 15:04:05"))
+	// Restore disabled targets (backward compatible - handle nil for old state files)
+	restoredDisabledCount := 0
+	if state.DisabledTargets != nil {
+		for addr, isDisabled := range state.DisabledTargets {
+			// Only restore if target still exists in config
+			targetExists := false
+			for _, target := range pm.config.Targets {
+				if target.TargetAddr == addr {
+					targetExists = true
+					break
+				}
+			}
+			
+			if targetExists && isDisabled {
+				pm.disabledTargets[addr] = true
+				restoredDisabledCount++
+				log.Printf("⏸️  Restored disabled state for target: %s", addr)
+			}
+		}
+	}
+
+	log.Printf("💾 Restored %d events, %d target stats, %d latency points, %d alert states, %d counters, %d disabled targets from state file (saved: %s)", 
+		restoredEventsCount, restoredStatsCount, restoredLatencyPoints, restoredAlertStates, restoredCounters, restoredDisabledCount, state.LastSaved.Format("2006-01-02 15:04:05"))
 
 	return nil
 }
