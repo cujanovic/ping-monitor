@@ -1347,6 +1347,84 @@ func (pm *PingMonitor) handleAPITargetEnable(w http.ResponseWriter, r *http.Requ
 	}
 }
 
+// handleAPITargetDisableAll handles disabling all targets
+func (pm *PingMonitor) handleAPITargetDisableAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(`{"error": "method not allowed"}`))
+		return
+	}
+
+	pm.mu.Lock()
+	disabledCount := 0
+	for _, target := range pm.config.Targets {
+		if !pm.disabledTargets[target.TargetAddr] {
+			pm.disabledTargets[target.TargetAddr] = true
+			disabledCount++
+		}
+	}
+	pm.stateSavePending = true // Trigger state save
+	pm.mu.Unlock()
+
+	log.Printf("⏸️  All targets disabled (%d targets)", disabledCount)
+	pm.addLog(fmt.Sprintf("All targets disabled (%d targets)", disabledCount))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := struct {
+		Success       bool   `json:"success"`
+		Message       string `json:"message"`
+		DisabledCount int    `json:"disabled_count"`
+	}{
+		Success:       true,
+		Message:       fmt.Sprintf("All targets disabled (%d targets)", disabledCount),
+		DisabledCount: disabledCount,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("⚠️  JSON encode error: %v", err)
+	}
+}
+
+// handleAPITargetEnableAll handles enabling all targets
+func (pm *PingMonitor) handleAPITargetEnableAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		w.Write([]byte(`{"error": "method not allowed"}`))
+		return
+	}
+
+	pm.mu.Lock()
+	enabledCount := 0
+	for _, target := range pm.config.Targets {
+		if pm.disabledTargets[target.TargetAddr] {
+			delete(pm.disabledTargets, target.TargetAddr)
+			enabledCount++
+		}
+	}
+	pm.stateSavePending = true // Trigger state save
+	pm.mu.Unlock()
+
+	log.Printf("▶️  All targets enabled (%d targets)", enabledCount)
+	pm.addLog(fmt.Sprintf("All targets enabled (%d targets)", enabledCount))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := struct {
+		Success      bool   `json:"success"`
+		Message      string `json:"message"`
+		EnabledCount int    `json:"enabled_count"`
+	}{
+		Success:      true,
+		Message:      fmt.Sprintf("All targets enabled (%d targets)", enabledCount),
+		EnabledCount: enabledCount,
+	}
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("⚠️  JSON encode error: %v", err)
+	}
+}
+
 // startHTTPServer starts the HTTP server
 func (pm *PingMonitor) startHTTPServer() {
 	if !pm.config.HTTPEnabled {
@@ -1374,6 +1452,8 @@ func (pm *PingMonitor) startHTTPServer() {
 	http.HandleFunc("/api/latency-history", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPILatencyHistory))))
 	http.HandleFunc("/api/target/disable", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetDisable))))
 	http.HandleFunc("/api/target/enable", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetEnable))))
+	http.HandleFunc("/api/target/disable-all", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetDisableAll))))
+	http.HandleFunc("/api/target/enable-all", securityHeadersMiddleware(pm.rateLimitMiddleware(pm.AuthMiddleware(pm.handleAPITargetEnableAll))))
 	
 	if pm.httpRateLimiter != nil {
 		go func() {

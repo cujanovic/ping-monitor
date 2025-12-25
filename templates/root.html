@@ -500,7 +500,15 @@
 		</div>
 		
 		<div class="targets" style="text-align: left;">
-			<h2 style="color: #e0e0e0; font-size: 18px; margin: 30px 0 15px 0;">Monitored Targets</h2>
+			<div style="display: flex; justify-content: space-between; align-items: center; margin: 30px 0 15px 0;">
+				<h2 style="color: #e0e0e0; font-size: 18px; margin: 0;">Monitored Targets</h2>
+				{{if .AuthEnabled}}
+				<div style="display: flex; gap: 8px;">
+					<button id="btn-disable-all" style="padding: 6px 16px; font-size: 12px; background: #ed8936; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Disable All</button>
+					<button id="btn-enable-all" style="padding: 6px 16px; font-size: 12px; background: #48bb78; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Enable All</button>
+				</div>
+				{{end}}
+			</div>
 			<div class="targets-list">
 				{{range .Targets}}
 				<div class="target-item-home">

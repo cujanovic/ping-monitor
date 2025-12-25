@@ -141,6 +141,10 @@ window.addEventListener('DOMContentLoaded', function() {
 			if (targetAddr && targetName) {
 				enableTarget(targetAddr, targetName);
 			}
+		} else if (e.target.id === 'btn-disable-all') {
+			disableAllTargets();
+		} else if (e.target.id === 'btn-enable-all') {
+			enableAllTargets();
 		}
 	});
 });
@@ -194,6 +198,76 @@ function enableTarget(targetAddr, targetName) {
 	.catch(error => {
 		console.error('Error enabling target:', error);
 		alert('Error enabling target: ' + error.message);
+	});
+}
+
+// Disable all targets
+function disableAllTargets() {
+	if (!confirm('Are you sure you want to disable monitoring for ALL targets?\n\nThis will stop all ping checks for all targets until you re-enable them.')) {
+		return;
+	}
+	
+	fetch('/api/target/disable-all', {
+		method: 'POST'
+	})
+	.then(response => {
+		// Handle authentication errors - redirect to login
+		if (response.status === 401) {
+			window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
+			return null;
+		}
+		if (!response.ok) {
+			throw new Error('HTTP ' + response.status);
+		}
+		return response.json();
+	})
+	.then(data => {
+		if (!data) return; // Auth redirect handled above
+		if (data.success) {
+			// Reload the page to show updated status
+			window.location.reload();
+		} else {
+			alert('Failed to disable all targets: ' + (data.error || 'Unknown error'));
+		}
+	})
+	.catch(error => {
+		console.error('Error disabling all targets:', error);
+		alert('Error disabling all targets: ' + error.message);
+	});
+}
+
+// Enable all targets
+function enableAllTargets() {
+	if (!confirm('Are you sure you want to enable monitoring for ALL targets?\n\nThis will resume ping checks for all targets.')) {
+		return;
+	}
+	
+	fetch('/api/target/enable-all', {
+		method: 'POST'
+	})
+	.then(response => {
+		// Handle authentication errors - redirect to login
+		if (response.status === 401) {
+			window.location.href = '/login?return=' + encodeURIComponent(window.location.pathname);
+			return null;
+		}
+		if (!response.ok) {
+			throw new Error('HTTP ' + response.status);
+		}
+		return response.json();
+	})
+	.then(data => {
+		if (!data) return; // Auth redirect handled above
+		if (data.success) {
+			// Reload the page to show updated status
+			window.location.reload();
+		} else {
+			alert('Failed to enable all targets: ' + (data.error || 'Unknown error'));
+		}
+	})
+	.catch(error => {
+		console.error('Error enabling all targets:', error);
+		alert('Error enabling all targets: ' + error.message);
 	});
 }
 
