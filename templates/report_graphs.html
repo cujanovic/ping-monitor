@@ -245,7 +245,7 @@
 				<select id="targetSelect">
 					<option value="all">All Targets</option>
 					{{range .Targets}}
-					<option value="{{.Address}}">{{.Name}}</option>
+					<option value="{{.Address}}">{{if .IsDisabled}}⏸️ {{end}}{{.Name}}{{if .IsDisabled}} (Disabled){{end}}</option>
 					{{end}}
 				</select>
 			</div>

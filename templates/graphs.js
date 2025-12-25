@@ -5,6 +5,18 @@ var colors = [
 	'#f6ad55', '#63b3ed', '#b794f4', '#fbb6ce', '#81e6d9'
 ];
 
+// Helper function to format target label with disabled indicator
+function formatTargetLabel(target) {
+	// Handle null/undefined safely
+	if (!target || !target.name) {
+		return 'Unknown';
+	}
+	if (target.is_disabled) {
+		return target.name + ' (Disabled)';
+	}
+	return target.name;
+}
+
 // Chart instances
 var charts = {
 	latency: null,
@@ -346,7 +358,7 @@ function createLatencyChart(data) {
 		matchCount++;
 		
 		datasets.push({
-			label: target.name,
+			label: formatTargetLabel(target),
 			data: target.points.filter(function(p) { return p.success; }).map(function(p) {
 				return { x: new Date(p.timestamp), y: p.latency_ms };
 			}),
@@ -381,7 +393,7 @@ function createPacketLossChart(data) {
 		matchCount++;
 		
 		datasets.push({
-			label: target.name,
+			label: formatTargetLabel(target),
 			data: target.points.map(function(p) {
 				return { x: new Date(p.timestamp), y: p.packet_loss };
 			}),
@@ -703,7 +715,8 @@ function createComparisonChart(data) {
 			}
 		});
 		
-		labels.push(target.name.length > 20 ? target.name.substring(0, 20) + '...' : target.name);
+		var label = formatTargetLabel(target);
+		labels.push(label.length > 20 ? label.substring(0, 20) + '...' : label);
 		avgLatencies.push(latencyCount > 0 ? latencySum / latencyCount : 0);
 		uptimes.push(target.points.length > 0 ? (successCount / target.points.length) * 100 : 0);
 		bgColors.push(colors[index % colors.length]);
@@ -761,7 +774,8 @@ function createHeatmapChart(data) {
 	data.targets.forEach(function(target) {
 		if (!targetMatchesFilter(target)) return;
 		
-		targets.push(target.name.length > 15 ? target.name.substring(0, 15) + '...' : target.name);
+		var label = formatTargetLabel(target);
+		targets.push(label.length > 15 ? label.substring(0, 15) + '...' : label);
 		
 		var buckets = {};
 		target.points.forEach(function(p) {

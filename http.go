@@ -1043,18 +1043,20 @@ func (pm *PingMonitor) handleReportsGraphs(w http.ResponseWriter, r *http.Reques
 	
 	// Build targets list for dropdown
 	type TargetInfo struct {
-		Name    string
-		Address string
-		Label   string
+		Name       string
+		Address    string
+		Label      string
+		IsDisabled bool
 	}
 	
 	pm.mu.RLock()
 	targets := make([]TargetInfo, len(pm.config.Targets))
 	for i, target := range pm.config.Targets {
 		targets[i] = TargetInfo{
-			Name:    target.Name,
-			Address: target.TargetAddr,
-			Label:   getTargetLabel(target.TargetAddr),
+			Name:       target.Name,
+			Address:    target.TargetAddr,
+			Label:      getTargetLabel(target.TargetAddr),
+			IsDisabled: pm.disabledTargets[target.TargetAddr],
 		}
 	}
 	pm.mu.RUnlock()
@@ -1103,10 +1105,11 @@ func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Re
 	
 	// Build response
 	type TargetData struct {
-		Name    string         `json:"name"`
-		Address string         `json:"address"`
-		Label   string         `json:"label"`
-		Points  []LatencyPoint `json:"points"`
+		Name       string         `json:"name"`
+		Address    string         `json:"address"`
+		Label      string         `json:"label"`
+		IsDisabled bool           `json:"is_disabled"`
+		Points     []LatencyPoint `json:"points"`
 	}
 	
 	pm.mu.RLock()
@@ -1128,10 +1131,11 @@ func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Re
 		})
 		
 		targets = append(targets, TargetData{
-			Name:    target.Name,
-			Address: target.TargetAddr,
-			Label:   getTargetLabel(target.TargetAddr),
-			Points:  filteredPoints,
+			Name:       target.Name,
+			Address:    target.TargetAddr,
+			Label:      getTargetLabel(target.TargetAddr),
+			IsDisabled: pm.disabledTargets[target.TargetAddr],
+			Points:     filteredPoints,
 		})
 	}
 	pm.mu.RUnlock()
