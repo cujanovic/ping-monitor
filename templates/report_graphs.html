@@ -17,11 +17,9 @@
 			background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
 			background-attachment: fixed;
 			margin: 0;
-			padding: 0;
+			padding: 20px;
 			min-height: 100vh;
-			display: flex;
-			align-items: flex-start;
-			justify-content: center;
+			color: #e0e0e0;
 		}
 		.container {
 			background: #2d2d2d;
@@ -31,7 +29,7 @@
 			text-align: center;
 			max-width: 1200px;
 			width: calc(100% - 40px);
-			margin: 20px;
+			margin: 0 auto;
 		}
 		h1 {
 			color: #e0e0e0;
@@ -213,7 +211,7 @@
 			margin-right: 8px;
 		}
 		.breadcrumb {
-			max-width: 800px;
+			max-width: 1200px;
 			margin: 0 auto 20px;
 			font-size: 14px;
 			color: #b0b0b0;
@@ -257,6 +255,13 @@
 		
 		/* Mobile Optimizations */
 		@media (max-width: 768px) {
+			body {
+				padding: 10px;
+			}
+			.container {
+				padding: 25px;
+				border-radius: 15px;
+			}
 			.breadcrumb {
 				font-size: 12px;
 				margin-bottom: 10px;
