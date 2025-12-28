@@ -212,9 +212,69 @@
 		.info-box .icon {
 			margin-right: 8px;
 		}
+		.breadcrumb {
+			max-width: 800px;
+			margin: 0 auto 20px;
+			font-size: 14px;
+			color: #b0b0b0;
+		}
+		.breadcrumb a {
+			color: #4CAF50;
+			text-decoration: none;
+		}
+		.breadcrumb a:hover {
+			text-decoration: underline;
+		}
+		
+		.scroll-to-top {
+			position: fixed;
+			bottom: 30px;
+			right: 30px;
+			width: 50px;
+			height: 50px;
+			background: #667eea;
+			color: white;
+			border: none;
+			border-radius: 50%;
+			font-size: 24px;
+			cursor: pointer;
+			opacity: 0;
+			visibility: hidden;
+			transition: opacity 0.3s, visibility 0.3s, transform 0.2s;
+			box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+			z-index: 1000;
+			font-weight: bold;
+		}
+		.scroll-to-top:hover {
+			background: #5a6fd6;
+			transform: translateY(-3px);
+			box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+		}
+		.scroll-to-top.show {
+			opacity: 1;
+			visibility: visible;
+		}
+		
+		/* Mobile Optimizations */
+		@media (max-width: 768px) {
+			.breadcrumb {
+				font-size: 12px;
+				margin-bottom: 10px;
+				overflow-wrap: break-word;
+				word-wrap: break-word;
+			}
+			.scroll-to-top {
+				bottom: 20px;
+				right: 20px;
+				width: 45px;
+				height: 45px;
+				font-size: 20px;
+			}
+		}
 	</style>
 </head>
 <body>
+	<div class="breadcrumb">🏠 <a href="/">Home</a> / 📊 <a href="/reports">Reports</a> / 📈 Latency Graphs</div>
 	<div class="container">
 		<div class="emoji">📈</div>
 		<h1>Latency Graphs</h1>
@@ -361,13 +421,9 @@
 			<strong>Zoom:</strong> Scroll to zoom horizontally on time-based charts. Click and drag to pan. Double-click to reset zoom.
 		</div>
 		
-		<div>
-			<a href="/" class="btn btn-back">← Home</a>
-			<a href="/report_now" class="btn btn-primary">Current State</a>
-			<a href="/report_all" class="btn btn-secondary">Full Reports</a>
-		</div>
-		
 		<div class="version">Ping Monitor v1.0 | {{.Timestamp}}</div>
+		
+		<button id="scrollToTop" class="scroll-to-top" title="Scroll to top">↑</button>
 	</div>
 	
 	<script src="/static/graphs.js"></script>

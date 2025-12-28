@@ -998,4 +998,25 @@ document.addEventListener('DOMContentLoaded', function() {
 	
 	// Auto-refresh every 60 seconds
 	setInterval(refreshData, 60000);
+	
+	// Scroll to top button functionality
+	function initScrollToTop() {
+		const scrollToTopBtn = document.getElementById('scrollToTop');
+		if (scrollToTopBtn) {
+			window.addEventListener('scroll', function() {
+				if (window.pageYOffset > 300) {
+					scrollToTopBtn.classList.add('show');
+				} else {
+					scrollToTopBtn.classList.remove('show');
+				}
+			});
+			scrollToTopBtn.addEventListener('click', function() {
+				window.scrollTo({
+					top: 0,
+					behavior: 'smooth'
+				});
+			});
+		}
+	}
+	initScrollToTop();
 });

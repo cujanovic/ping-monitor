@@ -28,6 +28,34 @@ body {
 .breadcrumb a:hover {
 	text-decoration: underline;
 }
+.scroll-to-top {
+	position: fixed;
+	bottom: 30px;
+	right: 30px;
+	width: 50px;
+	height: 50px;
+	background: #667eea;
+	color: white;
+	border: none;
+	border-radius: 50%;
+	font-size: 24px;
+	cursor: pointer;
+	opacity: 0;
+	visibility: hidden;
+	transition: opacity 0.3s, visibility 0.3s, transform 0.2s;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+	z-index: 1000;
+	font-weight: bold;
+}
+.scroll-to-top:hover {
+	background: #5a6fd6;
+	transform: translateY(-3px);
+	box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+}
+.scroll-to-top.show {
+	opacity: 1;
+	visibility: visible;
+}
 .container {
 	max-width: 800px;
 	margin: 0 auto;
@@ -104,6 +132,15 @@ h1 {
 	.breadcrumb {
 		font-size: 12px;
 		margin-bottom: 10px;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+	}
+	.scroll-to-top {
+		bottom: 20px;
+		right: 20px;
+		width: 45px;
+		height: 45px;
+		font-size: 20px;
 	}
 	.cards {
 		gap: 15px;
@@ -157,5 +194,7 @@ h1 {
 </div>
 <div class="footer">Generated: {{.Timestamp}}</div>
 </div>
+<button id="scrollToTop" class="scroll-to-top" title="Scroll to top">↑</button>
+<script src="/static/app.js"></script>
 </body></html>
 
