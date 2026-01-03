@@ -1089,8 +1089,8 @@ func (pm *PingMonitor) handleReportsGraphs(w http.ResponseWriter, r *http.Reques
 func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
-	// Get hours parameter (default 24, max 1176 = 7 weeks)
-	hours := 24
+	// Get hours parameter (default 12, max 1176 = 7 weeks)
+	hours := 12
 	if hoursParam := r.URL.Query().Get("hours"); hoursParam != "" {
 		fmt.Sscanf(hoursParam, "%d", &hours)
 		if hours < 1 {
@@ -1117,18 +1117,32 @@ func (pm *PingMonitor) handleAPILatencyHistory(w http.ResponseWriter, r *http.Re
 	
 	for _, target := range pm.config.Targets {
 		points := pm.latencyHistory[target.TargetAddr]
-		filteredPoints := make([]LatencyPoint, 0, len(points))
-		
-		for _, point := range points {
-			if point.Timestamp.After(cutoff) {
-				filteredPoints = append(filteredPoints, point)
-			}
+		if len(points) == 0 {
+			targets = append(targets, TargetData{
+				Name:       target.Name,
+				Address:    target.TargetAddr,
+				Label:      getTargetLabel(target.TargetAddr),
+				IsDisabled: pm.disabledTargets[target.TargetAddr],
+				Points:     []LatencyPoint{},
+			})
+			continue
 		}
 		
-		// Sort by timestamp
-		sort.Slice(filteredPoints, func(i, j int) bool {
-			return filteredPoints[i].Timestamp.Before(filteredPoints[j].Timestamp)
+		// Optimize: Since points are appended chronologically (oldest first, newest last),
+		// we can use binary search to find the cutoff point efficiently instead of iterating all points
+		cutoffIndex := sort.Search(len(points), func(i int) bool {
+			return !points[i].Timestamp.Before(cutoff) // Find first point >= cutoff
 		})
+		
+		// Extract filtered points (from cutoffIndex to end, already sorted chronologically)
+		var filteredPoints []LatencyPoint
+		if cutoffIndex < len(points) {
+			// Slice from cutoffIndex to end - this is O(1) operation
+			filteredPoints = points[cutoffIndex:]
+		} else {
+			// No points after cutoff
+			filteredPoints = []LatencyPoint{}
+		}
 		
 		targets = append(targets, TargetData{
 			Name:       target.Name,

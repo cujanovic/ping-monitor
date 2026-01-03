@@ -82,10 +82,25 @@ function standardDeviation(arr) {
 	return Math.sqrt(avgSquaredDiff);
 }
 
+// Show/hide loading overlay
+function showLoading() {
+	var overlay = document.getElementById('loadingOverlay');
+	if (overlay) {
+		overlay.classList.add('show');
+	}
+}
+
+function hideLoading() {
+	var overlay = document.getElementById('loadingOverlay');
+	if (overlay) {
+		overlay.classList.remove('show');
+	}
+}
+
 // Fetch latency data
 async function fetchData() {
 	var hoursSelect = document.getElementById('hoursSelect');
-	var hours = hoursSelect ? hoursSelect.value : 24;
+	var hours = hoursSelect ? hoursSelect.value : 12;
 	try {
 		var response = await fetch('/api/latency-history?hours=' + hours);
 		
@@ -906,9 +921,15 @@ function updateCharts(data) {
 
 // Refresh data and update charts
 async function refreshData() {
-	var data = await fetchData();
-	if (data) {
-		updateCharts(data);
+	showLoading();
+	try {
+		var data = await fetchData();
+		if (data) {
+			updateCharts(data);
+		}
+	} finally {
+		// Hide loading after a short delay to prevent flicker
+		setTimeout(hideLoading, 300);
 	}
 }
 
@@ -993,8 +1014,10 @@ document.addEventListener('DOMContentLoaded', function() {
 		});
 	}
 	
-	// Initial load
-	refreshData();
+	// Initial load - defer slightly to allow page to render first
+	setTimeout(function() {
+		refreshData();
+	}, 100);
 	
 	// Auto-refresh every 60 seconds
 	setInterval(refreshData, 60000);

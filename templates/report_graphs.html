@@ -172,6 +172,46 @@
 		.loading {
 			color: #b0b0b0;
 			padding: 40px;
+			text-align: center;
+		}
+		.loading-spinner {
+			display: inline-block;
+			width: 40px;
+			height: 40px;
+			border: 4px solid #404040;
+			border-top-color: #667eea;
+			border-radius: 50%;
+			animation: spin 1s linear infinite;
+			margin-bottom: 20px;
+		}
+		@keyframes spin {
+			to { transform: rotate(360deg); }
+		}
+		.loading-overlay {
+			position: fixed;
+			top: 0;
+			left: 0;
+			right: 0;
+			bottom: 0;
+			background: rgba(0, 0, 0, 0.7);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 9999;
+			opacity: 0;
+			visibility: hidden;
+			transition: opacity 0.3s, visibility 0.3s;
+		}
+		.loading-overlay.show {
+			opacity: 1;
+			visibility: visible;
+		}
+		.loading-content {
+			background: #2d2d2d;
+			padding: 40px;
+			border-radius: 15px;
+			text-align: center;
+			color: #e0e0e0;
 		}
 		.target-legend {
 			display: flex;
@@ -292,8 +332,8 @@
 					<option value="1">Last 1 hour</option>
 					<option value="3">Last 3 hours</option>
 					<option value="6">Last 6 hours</option>
-					<option value="12">Last 12 hours</option>
-					<option value="24" selected>Last 24 hours</option>
+					<option value="12" selected>Last 12 hours</option>
+					<option value="24">Last 24 hours</option>
 					<option value="48">Last 2 days</option>
 					<option value="168">Last 7 days</option>
 					<option value="336">Last 2 weeks</option>
@@ -349,6 +389,13 @@
 			<div class="stat-card">
 				<div class="stat-value" id="dataPoints">--</div>
 				<div class="stat-label">Data Points</div>
+			</div>
+		</div>
+		
+		<div id="loadingOverlay" class="loading-overlay">
+			<div class="loading-content">
+				<div class="loading-spinner"></div>
+				<div style="margin-top: 20px; font-size: 16px;">Loading latency data...</div>
 			</div>
 		</div>
 		
