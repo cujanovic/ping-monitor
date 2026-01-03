@@ -17,6 +17,14 @@
   "recovery_confirmation_count": 2,
   "alert_cooldown_minutes": 15,
   "email_rate_limit_per_hour": 60,
+  "email_rate_limit_per_target_per_hour": 10,
+  "email_critical_reserve_percent": 30,
+  "email_per_alert_type_limits": {
+    "down": 20,
+    "up": 15,
+    "packet_loss": 15,
+    "slow": 20
+  },
   "max_concurrent_pings": 10,
   "default_timeout_seconds": 4,
   "report_time_offset_hours": 0,

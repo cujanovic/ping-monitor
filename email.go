@@ -9,7 +9,46 @@ import (
 	brevo "github.com/getbrevo/brevo-go/lib"
 )
 
+// getAlertPriority returns the priority level of an alert type (higher = more critical)
+func getAlertPriority(alertType string) int {
+	switch alertType {
+	case "down":
+		return 5 // Highest priority - critical
+	case "up":
+		return 4 // High priority - recovery from critical
+	case "packet_loss":
+		return 3 // Medium-high priority
+	case "packet_loss_normal":
+		return 2 // Medium priority - recovery
+	case "slow":
+		return 2 // Medium priority
+	case "normal":
+		return 1 // Low priority - recovery
+	default:
+		return 1
+	}
+}
+
+// isCriticalAlert returns true if the alert is critical (down/up)
+func isCriticalAlert(alertType string) bool {
+	return alertType == "down" || alertType == "up"
+}
+
+// cleanupOldTimestamps removes timestamps older than 1 hour from a slice
+func cleanupOldTimestamps(timestamps []time.Time) []time.Time {
+	now := time.Now()
+	oneHourAgo := now.Add(-time.Hour)
+	valid := make([]time.Time, 0)
+	for _, t := range timestamps {
+		if t.After(oneHourAgo) {
+			valid = append(valid, t)
+		}
+	}
+	return valid
+}
+
 // canSendAlert checks if an alert can be sent based on cooldown and rate limiting
+// Implements priority-based, per-target, and per-alert-type rate limiting
 func (pm *PingMonitor) canSendAlert(target Target, alertType string) bool {
 	pm.mu.RLock()
 	key := AlertKey{TargetAddr: target.TargetAddr, AlertType: alertType}
@@ -20,28 +59,125 @@ func (pm *PingMonitor) canSendAlert(target Target, alertType string) bool {
 	if exists {
 		cooldownDuration := time.Duration(pm.config.AlertCooldownMinutes) * time.Minute
 		if time.Since(lastAlert) < cooldownDuration {
-			log.Printf("⏱️  Alert cooldown active for %s (%s)", formatTargetInfo(target), alertType)
+			log.Printf("⏱️  Alert cooldown active for %s (%s) - %v remaining", 
+				formatTargetInfo(target), alertType, cooldownDuration-time.Since(lastAlert))
 			return false
 		}
 	}
 
-	// Check rate limit
 	pm.emailMu.Lock()
 	defer pm.emailMu.Unlock()
-
-	now := time.Now()
-	oneHourAgo := now.Add(-time.Hour)
-	validEmails := make([]time.Time, 0)
-	for _, t := range pm.emailsSentThisHour {
-		if t.After(oneHourAgo) {
-			validEmails = append(validEmails, t)
+	
+	// Cleanup old timestamps (rolling window)
+	pm.emailsSentThisHour = cleanupOldTimestamps(pm.emailsSentThisHour)
+	
+	// Cleanup per-target timestamps
+	if pm.emailsSentPerTarget[target.TargetAddr] != nil {
+		cleaned := cleanupOldTimestamps(pm.emailsSentPerTarget[target.TargetAddr])
+		if len(cleaned) == 0 {
+			delete(pm.emailsSentPerTarget, target.TargetAddr) // Remove empty entries
+		} else {
+			pm.emailsSentPerTarget[target.TargetAddr] = cleaned
 		}
 	}
-	pm.emailsSentThisHour = validEmails
+	
+	// Cleanup per-alert-type timestamps
+	if pm.emailsSentPerAlertType[alertType] != nil {
+		cleaned := cleanupOldTimestamps(pm.emailsSentPerAlertType[alertType])
+		if len(cleaned) == 0 {
+			delete(pm.emailsSentPerAlertType, alertType) // Remove empty entries
+		} else {
+			pm.emailsSentPerAlertType[alertType] = cleaned
+		}
+	}
+	
+	// Cleanup all other expired entries to prevent memory leaks
+	for targetAddr, timestamps := range pm.emailsSentPerTarget {
+		if targetAddr != target.TargetAddr { // Skip the one we already cleaned
+			cleaned := cleanupOldTimestamps(timestamps)
+			if len(cleaned) == 0 {
+				delete(pm.emailsSentPerTarget, targetAddr)
+			} else {
+				pm.emailsSentPerTarget[targetAddr] = cleaned
+			}
+		}
+	}
+	
+	for alertTypeKey, timestamps := range pm.emailsSentPerAlertType {
+		if alertTypeKey != alertType { // Skip the one we already cleaned
+			cleaned := cleanupOldTimestamps(timestamps)
+			if len(cleaned) == 0 {
+				delete(pm.emailsSentPerAlertType, alertTypeKey)
+			} else {
+				pm.emailsSentPerAlertType[alertTypeKey] = cleaned
+			}
+		}
+	}
 
-	if len(pm.emailsSentThisHour) >= pm.config.EmailRateLimitPerHour {
-		log.Printf("⚠️  Email rate limit reached (%d/hour)", pm.config.EmailRateLimitPerHour)
-		return false
+	// Calculate critical reserve
+	criticalReserve := (pm.config.EmailRateLimitPerHour * pm.config.EmailCriticalReservePercent) / 100
+	nonCriticalLimit := pm.config.EmailRateLimitPerHour - criticalReserve
+	
+	// Check per-alert-type limit
+	if limit, exists := pm.config.EmailPerAlertTypeLimits[alertType]; exists && limit > 0 {
+		alertTypeSlice := pm.emailsSentPerAlertType[alertType]
+		if alertTypeSlice == nil {
+			alertTypeSlice = []time.Time{} // Initialize if nil
+		}
+		alertTypeCount := len(alertTypeSlice)
+		if alertTypeCount >= limit {
+			log.Printf("⚠️  Per-alert-type rate limit reached for %s (%d/%d per hour)", 
+				alertType, alertTypeCount, limit)
+			return false
+		}
+	}
+
+	// Check per-target limit
+	if pm.config.EmailRateLimitPerTargetPerHour > 0 {
+		targetSlice := pm.emailsSentPerTarget[target.TargetAddr]
+		if targetSlice == nil {
+			targetSlice = []time.Time{} // Initialize if nil
+		}
+		targetCount := len(targetSlice)
+		if targetCount >= pm.config.EmailRateLimitPerTargetPerHour {
+			log.Printf("⚠️  Per-target rate limit reached for %s (%d/%d per hour)", 
+				formatTargetInfo(target), targetCount, pm.config.EmailRateLimitPerTargetPerHour)
+			return false
+		}
+	}
+
+	// Check global rate limit with priority handling
+	isCritical := isCriticalAlert(alertType)
+	globalCount := len(pm.emailsSentThisHour)
+	
+	// Count non-critical emails sent in the last hour
+	// We count by summing non-critical alert types from per-alert-type map
+	// This works because recordAlert() always records in per-alert-type map
+	nonCriticalCount := 0
+	if !isCritical {
+		// Count non-critical emails by checking per-alert-type counters
+		for alertTypeKey, timestamps := range pm.emailsSentPerAlertType {
+			if !isCriticalAlert(alertTypeKey) && timestamps != nil {
+				// Count only timestamps within the last hour (already cleaned up above)
+				nonCriticalCount += len(timestamps)
+			}
+		}
+	}
+	
+	if isCritical {
+		// Critical alerts can use the full limit (including reserve)
+		if globalCount >= pm.config.EmailRateLimitPerHour {
+			log.Printf("⚠️  Global email rate limit reached (%d/hour) - critical alert blocked", 
+				pm.config.EmailRateLimitPerHour)
+			return false
+		}
+	} else {
+		// Non-critical alerts are limited to non-critical quota
+		if nonCriticalCount >= nonCriticalLimit {
+			log.Printf("⚠️  Non-critical email rate limit reached (%d/%d per hour) - %s alert blocked", 
+				nonCriticalCount, nonCriticalLimit, alertType)
+			return false
+		}
 	}
 
 	return true
@@ -57,7 +193,21 @@ func (pm *PingMonitor) recordAlert(target Target, alertType string) {
 	pm.mu.Unlock()
 
 	pm.emailMu.Lock()
+	// Record in global counter
 	pm.emailsSentThisHour = append(pm.emailsSentThisHour, now)
+	
+	// Record per-target
+	if pm.emailsSentPerTarget[target.TargetAddr] == nil {
+		pm.emailsSentPerTarget[target.TargetAddr] = make([]time.Time, 0)
+	}
+	pm.emailsSentPerTarget[target.TargetAddr] = append(pm.emailsSentPerTarget[target.TargetAddr], now)
+	
+	// Record per-alert-type
+	if pm.emailsSentPerAlertType[alertType] == nil {
+		pm.emailsSentPerAlertType[alertType] = make([]time.Time, 0)
+	}
+	pm.emailsSentPerAlertType[alertType] = append(pm.emailsSentPerAlertType[alertType], now)
+	
 	pm.emailMu.Unlock()
 }
 

@@ -153,7 +153,12 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 		
 		if currentCount >= requiredRecoveryCount {
 			// Confirmed recovery - use recoveryStartedAt for accurate timing
-			recoveryTime := pm.recoveryStartedAt[target.TargetAddr]
+			recoveryTime, exists := pm.recoveryStartedAt[target.TargetAddr]
+			if !exists {
+				// Fallback: use current time (shouldn't happen, but safety check)
+				log.Printf("⚠️  Warning: recoveryStartedAt not found for %s, using now as fallback", formatTargetInfo(target))
+				recoveryTime = now
+			}
 			pm.recoveryConsecutiveCount[target.TargetAddr] = 0
 			delete(pm.recoveryStartedAt, target.TargetAddr)
 			pm.handleTargetRecovered(target, rttMs, packetLoss, recoveryTime)
@@ -180,7 +185,7 @@ func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.
 	pm.mu.Unlock()
 
 	pm.addLog(logMsg)
-	pm.recordEvent(target, "down", 0, 0, 0)
+	pm.recordEventWithTime(target, "down", 0, 0, 0, now) // Use precise timestamp when target went down
 
 	if pm.canSendAlert(target, "down") {
 		if err := pm.sendEmail(target, "down", 0, packetLoss, 0); err != nil {
@@ -195,7 +200,12 @@ func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.
 // handleTargetRecovered handles when a target comes back up
 // recoveryTime is when the first successful ping was received during recovery confirmation
 func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packetLoss int, recoveryTime time.Time) {
-	downSince := pm.downSince[target.TargetAddr]
+	downSince, exists := pm.downSince[target.TargetAddr]
+	if !exists {
+		// Fallback: use recoveryTime as start (shouldn't happen, but safety check)
+		log.Printf("⚠️  Warning: downSince not found for %s, using recoveryTime as fallback", formatTargetInfo(target))
+		downSince = recoveryTime
+	}
 	// Calculate accurate downtime: from when it went down to when first successful ping was received
 	downtime := recoveryTime.Sub(downSince)
 	delete(pm.downTargets, target.TargetAddr)
@@ -207,7 +217,7 @@ func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packe
 	pm.mu.Unlock()
 
 	pm.addLog(logMsg)
-	pm.recordEvent(target, "up", rttMs, 0, downtime)
+	pm.recordEventWithTime(target, "up", rttMs, 0, downtime, recoveryTime) // Use precise recovery timestamp
 
 	if pm.canSendAlert(target, "up") {
 		if err := pm.sendEmail(target, "up", rttMs, packetLoss, downtime); err != nil {
@@ -257,7 +267,7 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 			pm.mu.Unlock()
 
 			pm.addLog(logMsg)
-			pm.recordEvent(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0)
+			pm.recordEventWithTime(target, "packet_loss", float64(packetLoss), float64(packetLossThreshold), 0, now) // Use precise timestamp
 
 			if pm.canSendAlert(target, "packet_loss") {
 				if err := pm.sendEmail(target, "packet_loss", rttMs, packetLoss, 0); err != nil {
@@ -284,7 +294,10 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 			// Had packet loss, now normal - check recovery confirmation
 			pm.recoveryConsecutiveCount[recoveryKey]++
 			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
-			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
+			// Use faster recovery confirmation for packet loss (1 ping instead of 2)
+			// Since we're already in rapid polling mode (1s interval), 1 confirmation is sufficient
+			// This reduces recovery detection time from ~2s to ~1s
+			requiredRecoveryCount := 1
 			
 			// Track when recovery started (first normal ping)
 			if currentRecoveryCount == 1 {
@@ -293,7 +306,12 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 			
 			if currentRecoveryCount >= requiredRecoveryCount {
 				// Confirmed recovery - use recoveryStartedAt for accurate timing
-				recoveryTime := pm.recoveryStartedAt[recoveryKey]
+				recoveryTime, exists := pm.recoveryStartedAt[recoveryKey]
+				if !exists {
+					// Fallback: use current time (shouldn't happen, but safety check)
+					log.Printf("⚠️  Warning: recoveryStartedAt not found for %s packet loss recovery, using now as fallback", formatTargetInfo(target))
+					recoveryTime = now
+				}
 				pm.recoveryConsecutiveCount[recoveryKey] = 0
 				delete(pm.recoveryStartedAt, recoveryKey)
 				duration := time.Duration(0)
@@ -303,11 +321,11 @@ func (pm *PingMonitor) checkPacketLossThreshold(target Target, packetLoss int, r
 				delete(pm.packetLossTargets, target.TargetAddr)
 				delete(pm.packetLossSince, target.TargetAddr)
 				pm.criticalSavePending = true // Critical event
-				log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%) confirmed after %d checks",
+				log.Printf("🟢 RECOVERY: %s packet loss is now NORMAL (%d%% < %d%%) confirmed after %d check(s)",
 					formatTargetInfo(target), packetLoss, packetLossThreshold, currentRecoveryCount)
 				pm.mu.Unlock()
 
-				pm.recordEvent(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration)
+				pm.recordEventWithTime(target, "packet_loss_normal", float64(packetLoss), float64(packetLossThreshold), duration, recoveryTime) // Use precise recovery timestamp
 
 				if pm.canSendAlert(target, "packet_loss_normal") {
 					if err := pm.sendEmail(target, "packet_loss_normal", rttMs, packetLoss, duration); err != nil {
@@ -363,7 +381,7 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 			pm.mu.Unlock()
 
 			pm.addLog(logMsg)
-			pm.recordEvent(target, "high_latency", rttMs, float64(threshold), 0)
+			pm.recordEventWithTime(target, "high_latency", rttMs, float64(threshold), 0, now) // Use precise timestamp
 
 			if pm.canSendAlert(target, "slow") {
 				if err := pm.sendEmail(target, "slow", rttMs, packetLoss, 0); err != nil {
@@ -390,7 +408,10 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 			// Was slow, now normal - check recovery confirmation
 			pm.recoveryConsecutiveCount[recoveryKey]++
 			currentRecoveryCount := pm.recoveryConsecutiveCount[recoveryKey]
-			requiredRecoveryCount := pm.config.RecoveryConfirmationCount
+			// Use faster recovery confirmation for high latency (1 ping instead of 2)
+			// Since we're already in rapid polling mode (1s interval), 1 confirmation is sufficient
+			// This reduces recovery detection time from ~2s to ~1s
+			requiredRecoveryCount := 1
 			
 			// Track when recovery started (first normal ping)
 			if currentRecoveryCount == 1 {
@@ -399,7 +420,12 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 			
 			if currentRecoveryCount >= requiredRecoveryCount {
 				// Confirmed recovery - use recoveryStartedAt for accurate timing
-				recoveryTime := pm.recoveryStartedAt[recoveryKey]
+				recoveryTime, exists := pm.recoveryStartedAt[recoveryKey]
+				if !exists {
+					// Fallback: use current time (shouldn't happen, but safety check)
+					log.Printf("⚠️  Warning: recoveryStartedAt not found for %s latency recovery, using now as fallback", formatTargetInfo(target))
+					recoveryTime = now
+				}
 				pm.recoveryConsecutiveCount[recoveryKey] = 0
 				delete(pm.recoveryStartedAt, recoveryKey)
 				duration := time.Duration(0)
@@ -409,11 +435,11 @@ func (pm *PingMonitor) checkLatencyThreshold(target Target, rttMs float64, packe
 				delete(pm.slowTargets, target.TargetAddr)
 				delete(pm.slowSince, target.TargetAddr)
 				pm.criticalSavePending = true // Critical event
-				log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms) confirmed after %d checks",
+				log.Printf("🟢 RECOVERY: %s latency is now NORMAL (%.2fms <= %dms) confirmed after %d check(s)",
 					formatTargetInfo(target), rttMs, threshold, currentRecoveryCount)
 				pm.mu.Unlock()
 
-				pm.recordEvent(target, "latency_normal", rttMs, float64(threshold), duration)
+				pm.recordEventWithTime(target, "latency_normal", rttMs, float64(threshold), duration, recoveryTime) // Use precise recovery timestamp
 
 				if pm.canSendAlert(target, "normal") {
 					if err := pm.sendEmail(target, "normal", rttMs, packetLoss, duration); err != nil {
@@ -502,7 +528,7 @@ func (pm *PingMonitor) rapidConfirmHighLatency(target Target, threshold int, det
 			pm.mu.Unlock()
 			
 			pm.addLog(logMsg)
-			pm.recordEvent(target, "high_latency", float64(threshold), float64(threshold), 0)
+			pm.recordEventWithTime(target, "high_latency", float64(threshold), float64(threshold), 0, detectedTime) // Use precise detection time
 			
 			if pm.canSendAlert(target, "slow") {
 				if err := pm.sendEmail(target, "slow", float64(threshold), 0, 0); err != nil {
@@ -592,7 +618,7 @@ func (pm *PingMonitor) rapidConfirmPacketLoss(target Target, lossThreshold int, 
 			pm.mu.Unlock()
 			
 			pm.addLog(logMsg)
-			pm.recordEvent(target, "packet_loss", float64(lossThreshold), float64(lossThreshold), 0)
+			pm.recordEventWithTime(target, "packet_loss", float64(lossThreshold), float64(lossThreshold), 0, detectedTime) // Use precise detection time
 			
 			if pm.canSendAlert(target, "packet_loss") {
 				if err := pm.sendEmail(target, "packet_loss", 0, lossThreshold, 0); err != nil {

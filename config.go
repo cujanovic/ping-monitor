@@ -26,7 +26,10 @@ type Config struct {
 	AlertStatePingIntervalSeconds            int      `json:"alert_state_ping_interval_seconds"`
 	RecoveryConfirmationCount                int      `json:"recovery_confirmation_count"`
 	AlertCooldownMinutes                     int      `json:"alert_cooldown_minutes"`
-	EmailRateLimitPerHour      int      `json:"email_rate_limit_per_hour"`
+	EmailRateLimitPerHour                     int      `json:"email_rate_limit_per_hour"`
+	EmailRateLimitPerTargetPerHour            int      `json:"email_rate_limit_per_target_per_hour"` // Per-target limit (0 = disabled)
+	EmailCriticalReservePercent               int      `json:"email_critical_reserve_percent"`         // Reserve % for critical alerts (down/up)
+	EmailPerAlertTypeLimits                   map[string]int `json:"email_per_alert_type_limits"`    // Per-alert-type limits (e.g. {"down": 20, "slow": 30})
 	MaxConcurrentPings         int      `json:"max_concurrent_pings"`
 	DefaultTimeoutSeconds      int      `json:"default_timeout_seconds"`
 	ReportTimeOffsetHours      int      `json:"report_time_offset_hours"`
@@ -122,6 +125,12 @@ func ValidateConfig(config Config) error {
 	}
 	if config.EmailRateLimitPerHour > 300 {
 		errors = append(errors, "email_rate_limit_per_hour exceeds Brevo free tier limit (300/day)")
+	}
+	if config.EmailRateLimitPerTargetPerHour < 0 {
+		errors = append(errors, "email_rate_limit_per_target_per_hour must be >= 0 (0 = disabled)")
+	}
+	if config.EmailCriticalReservePercent < 0 || config.EmailCriticalReservePercent > 50 {
+		errors = append(errors, "email_critical_reserve_percent must be between 0 and 50")
 	}
 	if config.MaxConcurrentPings < 1 {
 		errors = append(errors, "max_concurrent_pings must be at least 1")

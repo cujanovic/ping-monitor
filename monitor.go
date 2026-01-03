@@ -27,7 +27,9 @@ type PingMonitor struct {
 	recoveryConsecutiveCount   map[string]int        // Track consecutive normal pings for recovery confirmation
 	recoveryStartedAt          map[string]time.Time  // When first successful ping during recovery was received
 	lastAlertTime             map[AlertKey]time.Time
-	emailsSentThisHour []time.Time
+	emailsSentThisHour        []time.Time // Global rolling window
+	emailsSentPerTarget       map[string][]time.Time // Per-target rolling window
+	emailsSentPerAlertType    map[string][]time.Time // Per-alert-type rolling window
 	targetStats        map[string]*TargetStats
 	statsStartTime     time.Time // Reset after each report for tracking report duration
 	serviceStartTime   time.Time // Never reset - actual service start time
@@ -101,6 +103,15 @@ func NewPingMonitor(config Config) *PingMonitor {
 	}
 	if config.EmailRateLimitPerHour == 0 {
 		config.EmailRateLimitPerHour = 60
+	}
+	if config.EmailCriticalReservePercent == 0 {
+		config.EmailCriticalReservePercent = 30 // Reserve 30% for critical alerts by default
+	}
+	if config.EmailCriticalReservePercent > 50 {
+		config.EmailCriticalReservePercent = 50 // Cap at 50%
+	}
+	if config.EmailPerAlertTypeLimits == nil {
+		config.EmailPerAlertTypeLimits = make(map[string]int)
 	}
 	if config.MaxConcurrentPings == 0 {
 		config.MaxConcurrentPings = 10
@@ -229,7 +240,9 @@ func NewPingMonitor(config Config) *PingMonitor {
 		recoveryConsecutiveCount:   make(map[string]int),
 		recoveryStartedAt:          make(map[string]time.Time),
 		lastAlertTime:             make(map[AlertKey]time.Time),
-		emailsSentThisHour: make([]time.Time, 0),
+		emailsSentThisHour:     make([]time.Time, 0),
+		emailsSentPerTarget:    make(map[string][]time.Time),
+		emailsSentPerAlertType: make(map[string][]time.Time),
 		targetStats:        targetStats,
 		statsStartTime:     time.Now(),
 		serviceStartTime:   time.Now(),
@@ -539,7 +552,10 @@ func (pm *PingMonitor) logStartupInfo() {
 	log.Printf("   • Default Timeout: %d seconds", pm.config.DefaultTimeoutSeconds)
 	log.Printf("   • Packet Loss Threshold: %d%%", pm.config.PacketLossThresholdPercent)
 	log.Printf("   • Alert Cooldown: %d minutes", pm.config.AlertCooldownMinutes)
-	log.Printf("   • Email Rate Limit: %d/hour", pm.config.EmailRateLimitPerHour)
+	log.Printf("   • Email Rate Limit: %d/hour (per-target: %d, critical reserve: %d%%)", 
+		pm.config.EmailRateLimitPerHour, 
+		pm.config.EmailRateLimitPerTargetPerHour,
+		pm.config.EmailCriticalReservePercent)
 	log.Printf("   • Max Concurrent Pings: %d", pm.config.MaxConcurrentPings)
 	log.Printf("   • Alert State Ping Interval: %d seconds", pm.config.AlertStatePingIntervalSeconds)
 	log.Printf("   • Recovery Confirmation: %d consecutive checks", pm.config.RecoveryConfirmationCount)

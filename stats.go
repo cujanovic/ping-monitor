@@ -104,7 +104,13 @@ func (pm *PingMonitor) getLatencyStdDev(addr string) float64 {
 }
 
 // recordEvent records an event for summary reporting
+// Uses time.Now() for timestamp - use recordEventWithTime for precise timestamps
 func (pm *PingMonitor) recordEvent(target Target, eventType string, value float64, threshold float64, duration time.Duration) {
+	pm.recordEventWithTime(target, eventType, value, threshold, duration, time.Now())
+}
+
+// recordEventWithTime records an event with a specific timestamp for precise timing
+func (pm *PingMonitor) recordEventWithTime(target Target, eventType string, value float64, threshold float64, duration time.Duration, timestamp time.Time) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
@@ -115,7 +121,7 @@ func (pm *PingMonitor) recordEvent(target Target, eventType string, value float6
 	}
 
 	event := EventRecord{
-		Timestamp: time.Now(),
+		Timestamp: timestamp,
 		EventType: eventType,
 		Value:     value,
 		Threshold: threshold,
