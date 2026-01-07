@@ -66,6 +66,33 @@
 			color: #b0b0b0;
 			font-size: 14px;
 		}
+		.search-wrapper {
+			position: relative;
+			display: inline-block;
+		}
+		.search-loader {
+			position: absolute;
+			right: 10px;
+			top: 50%;
+			transform: translateY(-50%);
+			width: 16px;
+			height: 16px;
+			border: 2px solid rgba(102, 126, 234, 0.3);
+			border-top-color: #667eea;
+			border-radius: 50%;
+			animation: spin 0.6s linear infinite;
+			opacity: 0;
+			visibility: hidden;
+			transition: opacity 0.2s, visibility 0.2s;
+			pointer-events: none;
+		}
+		.search-loader.show {
+			opacity: 1;
+			visibility: visible;
+		}
+		#searchInput {
+			padding-right: 35px;
+		}
 		select, button, input[type="text"] {
 			background: #2d2d2d;
 			border: 1px solid #404040;
@@ -327,7 +354,7 @@
 		
 		<div class="controls">
 			<div class="control-group">
-				<label>Time Range:</label>
+				<label for="hoursSelect">Time Range:</label>
 				<select id="hoursSelect">
 					<option value="1">Last 1 hour</option>
 					<option value="3">Last 3 hours</option>
@@ -342,11 +369,14 @@
 				</select>
 			</div>
 			<div class="control-group">
-				<label>Search:</label>
-				<input type="text" id="searchInput" placeholder="Filter targets..." style="width: 150px;">
+				<label for="searchInput">Search:</label>
+				<div class="search-wrapper">
+					<input type="text" id="searchInput" placeholder="Filter targets..." style="width: 150px;">
+					<div id="searchLoader" class="search-loader"></div>
+				</div>
 			</div>
 			<div class="control-group">
-				<label>Target:</label>
+				<label for="targetSelect">Target:</label>
 				<select id="targetSelect">
 					<option value="all">All Targets</option>
 					{{range .Targets}}

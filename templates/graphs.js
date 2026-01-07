@@ -946,12 +946,23 @@ document.addEventListener('DOMContentLoaded', function() {
 	}
 	
 	if (targetSelect) {
+		var searchLoader = document.getElementById('searchLoader');
 		targetSelect.addEventListener('change', function() {
 			if (this.value !== 'all' && searchInput) {
 				searchInput.value = '';
 			}
+			// Show loader when filtering by target
+			if (searchLoader) {
+				searchLoader.classList.add('show');
+			}
 			if (cachedData) {
 				updateCharts(cachedData);
+				// Hide loader after update
+				setTimeout(function() {
+					if (searchLoader) {
+						searchLoader.classList.remove('show');
+					}
+				}, 100);
 			}
 		});
 	}
@@ -962,20 +973,46 @@ document.addEventListener('DOMContentLoaded', function() {
 	
 	var searchTimeout = null;
 	if (searchInput) {
+		var searchLoader = document.getElementById('searchLoader');
 		searchInput.addEventListener('input', function() {
 			if (targetSelect) targetSelect.value = 'all';
+			
+			// Show loader immediately
+			if (searchLoader) {
+				searchLoader.classList.add('show');
+			}
+			
 			clearTimeout(searchTimeout);
 			searchTimeout = setTimeout(function() {
-				if (cachedData) updateCharts(cachedData);
+				if (cachedData) {
+					updateCharts(cachedData);
+				}
+				// Hide loader after update
+				if (searchLoader) {
+					searchLoader.classList.remove('show');
+				}
 			}, 300);
 		});
 	}
 	
 	if (clearBtn) {
+		var searchLoader = document.getElementById('searchLoader');
 		clearBtn.addEventListener('click', function() {
 			if (searchInput) searchInput.value = '';
 			if (targetSelect) targetSelect.value = 'all';
-			if (cachedData) updateCharts(cachedData);
+			// Show loader when clearing
+			if (searchLoader) {
+				searchLoader.classList.add('show');
+			}
+			if (cachedData) {
+				updateCharts(cachedData);
+				// Hide loader after update
+				setTimeout(function() {
+					if (searchLoader) {
+						searchLoader.classList.remove('show');
+					}
+				}, 100);
+			}
 		});
 	}
 	
