@@ -178,7 +178,16 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 // handleTargetDown handles when a target goes down
 func (pm *PingMonitor) handleTargetDown(target Target, packetLoss int, now time.Time) {
 	pm.downTargets[target.TargetAddr] = true
-	pm.downSince[target.TargetAddr] = now
+	// Only set downSince if it doesn't already exist (preserve from state restoration)
+	// This ensures accurate downtime calculation even after monitor restarts
+	if _, exists := pm.downSince[target.TargetAddr]; !exists {
+		pm.downSince[target.TargetAddr] = now
+	} else {
+		// Log if we're detecting a new down event but downSince already exists
+		// This shouldn't happen in normal flow, but helps debug state issues
+		log.Printf("⚠️  Warning: %s detected as down but downSince already exists (%s), preserving original timestamp",
+			formatTargetInfo(target), pm.downSince[target.TargetAddr].Format("2006-01-02 15:04:05"))
+	}
 	pm.criticalSavePending = true // Critical event - save immediately
 	logMsg := fmt.Sprintf("🔴 ALERT: %s is now DOWN", formatTargetInfo(target))
 	log.Printf(logMsg)
@@ -208,6 +217,14 @@ func (pm *PingMonitor) handleTargetRecovered(target Target, rttMs float64, packe
 	}
 	// Calculate accurate downtime: from when it went down to when first successful ping was received
 	downtime := recoveryTime.Sub(downSince)
+	
+	// Log detailed timing information for debugging
+	log.Printf("🔍 Downtime calculation for %s: downSince=%s, recoveryTime=%s, downtime=%s",
+		formatTargetInfo(target),
+		downSince.Format("2006-01-02 15:04:05.000"),
+		recoveryTime.Format("2006-01-02 15:04:05.000"),
+		formatDuration(downtime))
+	
 	delete(pm.downTargets, target.TargetAddr)
 	delete(pm.downSince, target.TargetAddr)
 	pm.criticalSavePending = true // Critical event - save immediately

@@ -950,19 +950,13 @@ document.addEventListener('DOMContentLoaded', function() {
 		targetSelect.addEventListener('change', function() {
 			if (this.value !== 'all' && searchInput) {
 				searchInput.value = '';
-			}
-			// Show loader when filtering by target
-			if (searchLoader) {
-				searchLoader.classList.add('show');
+				// Hide loader when clearing search
+				if (searchLoader) {
+					searchLoader.classList.remove('show');
+				}
 			}
 			if (cachedData) {
 				updateCharts(cachedData);
-				// Hide loader after update
-				setTimeout(function() {
-					if (searchLoader) {
-						searchLoader.classList.remove('show');
-					}
-				}, 100);
 			}
 		});
 	}
@@ -977,9 +971,15 @@ document.addEventListener('DOMContentLoaded', function() {
 		searchInput.addEventListener('input', function() {
 			if (targetSelect) targetSelect.value = 'all';
 			
-			// Show loader immediately
+			var searchValue = this.value.trim();
+			
+			// Show loader only if there's actual input (not empty)
 			if (searchLoader) {
-				searchLoader.classList.add('show');
+				if (searchValue) {
+					searchLoader.classList.add('show');
+				} else {
+					searchLoader.classList.remove('show');
+				}
 			}
 			
 			clearTimeout(searchTimeout);
@@ -1000,18 +1000,12 @@ document.addEventListener('DOMContentLoaded', function() {
 		clearBtn.addEventListener('click', function() {
 			if (searchInput) searchInput.value = '';
 			if (targetSelect) targetSelect.value = 'all';
-			// Show loader when clearing
+			// Hide loader when clearing
 			if (searchLoader) {
-				searchLoader.classList.add('show');
+				searchLoader.classList.remove('show');
 			}
 			if (cachedData) {
 				updateCharts(cachedData);
-				// Hide loader after update
-				setTimeout(function() {
-					if (searchLoader) {
-						searchLoader.classList.remove('show');
-					}
-				}, 100);
 			}
 		});
 	}
