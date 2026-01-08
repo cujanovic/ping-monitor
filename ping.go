@@ -128,6 +128,10 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	// Capture timestamp AFTER ping completes for accurate timing
+	// This ensures downSince/recoveryTime reflect actual detection time, not when monitoring started
+	detectionTime := time.Now()
+
 	// Check if status changed (down/up)
 	wasDown := pm.downTargets[target.TargetAddr]
 	requiredRecoveryCount := pm.config.RecoveryConfirmationCount
@@ -136,7 +140,7 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 		// Target just went down
 		pm.recoveryConsecutiveCount[target.TargetAddr] = 0 // Reset recovery counter
 		delete(pm.recoveryStartedAt, target.TargetAddr)    // Clear any recovery start time
-		pm.handleTargetDown(target, packetLoss, now)
+		pm.handleTargetDown(target, packetLoss, detectionTime)
 	} else if !success && wasDown {
 		// Target still down - reset recovery counter
 		pm.recoveryConsecutiveCount[target.TargetAddr] = 0
@@ -148,16 +152,16 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 		
 		// Track when recovery started (first successful ping)
 		if currentCount == 1 {
-			pm.recoveryStartedAt[target.TargetAddr] = now
+			pm.recoveryStartedAt[target.TargetAddr] = detectionTime
 		}
 		
 		if currentCount >= requiredRecoveryCount {
 			// Confirmed recovery - use recoveryStartedAt for accurate timing
 			recoveryTime, exists := pm.recoveryStartedAt[target.TargetAddr]
 			if !exists {
-				// Fallback: use current time (shouldn't happen, but safety check)
-				log.Printf("⚠️  Warning: recoveryStartedAt not found for %s, using now as fallback", formatTargetInfo(target))
-				recoveryTime = now
+				// Fallback: use detection time (shouldn't happen, but safety check)
+				log.Printf("⚠️  Warning: recoveryStartedAt not found for %s, using detectionTime as fallback", formatTargetInfo(target))
+				recoveryTime = detectionTime
 			}
 			pm.recoveryConsecutiveCount[target.TargetAddr] = 0
 			delete(pm.recoveryStartedAt, target.TargetAddr)
@@ -170,8 +174,8 @@ func (pm *PingMonitor) monitorTarget(target Target, now time.Time, updateStats b
 
 	// Check packet loss and latency thresholds for targets that are up
 	if success {
-		pm.checkPacketLossThreshold(target, packetLoss, rttMs, now)
-		pm.checkLatencyThreshold(target, rttMs, packetLoss, now)
+		pm.checkPacketLossThreshold(target, packetLoss, rttMs, detectionTime)
+		pm.checkLatencyThreshold(target, rttMs, packetLoss, detectionTime)
 	}
 }
 
