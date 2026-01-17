@@ -870,53 +870,63 @@ function createHeatmapChart(data) {
 
 // Update all charts
 function updateCharts(data) {
-	// Count matches
-	var matchCount = 0;
-	var totalPoints = 0;
+	// Show loading bar during chart updates
+	showLoading();
 	
-	data.targets.forEach(function(target) {
-		if (targetMatchesFilter(target)) {
-			matchCount++;
-			totalPoints += target.points.length;
+	// Use requestAnimationFrame to ensure loading bar is visible
+	requestAnimationFrame(function() {
+		// Count matches
+		var matchCount = 0;
+		var totalPoints = 0;
+		
+		data.targets.forEach(function(target) {
+			if (targetMatchesFilter(target)) {
+				matchCount++;
+				totalPoints += target.points.length;
+			}
+		});
+		
+		updateMatchInfo(matchCount, data.targets.length);
+		
+		// Show/hide no data message
+		var noDataMsg = document.getElementById('noDataMessage');
+		var containers = ['latencyChartContainer', 'packetLossChartContainer', 'percentilesChartContainer',
+			'successRateChartContainer', 'distributionChartContainer', 'jitterChartContainer',
+			'hourlyPatternChartContainer', 'comparisonChartContainer', 'heatmapChartContainer'];
+		
+		if (totalPoints === 0) {
+			if (noDataMsg) noDataMsg.style.display = 'block';
+			containers.forEach(function(id) {
+				var el = document.getElementById(id);
+				if (el) el.style.display = 'none';
+			});
+			updateStats(data);
+			hideLoading();
+			return;
+		} else {
+			if (noDataMsg) noDataMsg.style.display = 'none';
+			containers.forEach(function(id) {
+				var el = document.getElementById(id);
+				if (el) el.style.display = 'block';
+			});
 		}
-	});
-	
-	updateMatchInfo(matchCount, data.targets.length);
-	
-	// Show/hide no data message
-	var noDataMsg = document.getElementById('noDataMessage');
-	var containers = ['latencyChartContainer', 'packetLossChartContainer', 'percentilesChartContainer',
-		'successRateChartContainer', 'distributionChartContainer', 'jitterChartContainer',
-		'hourlyPatternChartContainer', 'comparisonChartContainer', 'heatmapChartContainer'];
-	
-	if (totalPoints === 0) {
-		if (noDataMsg) noDataMsg.style.display = 'block';
-		containers.forEach(function(id) {
-			var el = document.getElementById(id);
-			if (el) el.style.display = 'none';
-		});
+		
+		// Create all charts
+		createLatencyChart(data);
+		createPacketLossChart(data);
+		createPercentilesChart(data);
+		createSuccessRateChart(data);
+		createDistributionChart(data);
+		createJitterChart(data);
+		createHourlyPatternChart(data);
+		createComparisonChart(data);
+		createHeatmapChart(data);
+		
 		updateStats(data);
-		return;
-	} else {
-		if (noDataMsg) noDataMsg.style.display = 'none';
-		containers.forEach(function(id) {
-			var el = document.getElementById(id);
-			if (el) el.style.display = 'block';
-		});
-	}
-	
-	// Create all charts
-	createLatencyChart(data);
-	createPacketLossChart(data);
-	createPercentilesChart(data);
-	createSuccessRateChart(data);
-	createDistributionChart(data);
-	createJitterChart(data);
-	createHourlyPatternChart(data);
-	createComparisonChart(data);
-	createHeatmapChart(data);
-	
-	updateStats(data);
+		
+		// Hide loading bar after charts are updated
+		hideLoading();
+	});
 }
 
 // Refresh data and update charts
@@ -961,11 +971,19 @@ document.addEventListener('DOMContentLoaded', function() {
 	}
 	
 	if (searchInput) {
+		var searchTimeout = null;
 		searchInput.addEventListener('input', function() {
 			if (targetSelect) targetSelect.value = 'all';
-			if (cachedData) {
-				updateCharts(cachedData);
-			}
+			
+			// Clear previous timeout
+			clearTimeout(searchTimeout);
+			
+			// Debounce chart updates for better performance
+			searchTimeout = setTimeout(function() {
+				if (cachedData) {
+					updateCharts(cachedData);
+				}
+			}, 150); // Small delay to batch rapid typing
 		});
 	}
 	

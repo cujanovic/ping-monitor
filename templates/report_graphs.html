@@ -68,6 +68,15 @@
 		}
 		#searchInput {
 			padding-right: 15px;
+			transition: border-color 0.2s, box-shadow 0.2s;
+		}
+		#searchInput:focus {
+			border-color: #667eea;
+			box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+			outline: none;
+		}
+		#searchInput:not(:placeholder-shown) {
+			border-color: #48bb78;
 		}
 		select, button, input[type="text"] {
 			background: #2d2d2d;
