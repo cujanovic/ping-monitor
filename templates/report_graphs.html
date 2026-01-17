@@ -66,37 +66,8 @@
 			color: #b0b0b0;
 			font-size: 14px;
 		}
-		.search-wrapper {
-			position: relative;
-			display: inline-block;
-		}
-		.search-loader {
-			position: absolute;
-			right: 12px;
-			top: 50%;
-			transform: translateY(-50%);
-			width: 14px;
-			height: 14px;
-			border: 2px solid transparent;
-			border-top: 2px solid #667eea;
-			border-right: 2px solid #667eea;
-			border-radius: 50%;
-			animation: spin 0.8s linear infinite;
-			opacity: 0;
-			visibility: hidden;
-			transition: opacity 0.3s ease, visibility 0.3s ease;
-			pointer-events: none;
-			z-index: 1;
-		}
-		.search-loader.show {
-			opacity: 0.7;
-			visibility: visible;
-		}
 		#searchInput {
-			padding-right: 38px;
-		}
-		#searchInput:focus + .search-loader {
-			opacity: 0.9;
+			padding-right: 15px;
 		}
 		select, button, input[type="text"] {
 			background: #2d2d2d;
@@ -219,31 +190,41 @@
 		@keyframes spin {
 			to { transform: rotate(360deg); }
 		}
-		.loading-overlay {
+		.loading-bar {
 			position: fixed;
 			top: 0;
 			left: 0;
 			right: 0;
-			bottom: 0;
-			background: rgba(0, 0, 0, 0.7);
-			display: flex;
-			align-items: center;
-			justify-content: center;
+			height: 3px;
+			background: transparent;
 			z-index: 9999;
+			pointer-events: none;
 			opacity: 0;
 			visibility: hidden;
-			transition: opacity 0.3s, visibility 0.3s;
+			transition: opacity 0.2s, visibility 0.2s;
 		}
-		.loading-overlay.show {
+		.loading-bar.show {
 			opacity: 1;
 			visibility: visible;
 		}
-		.loading-content {
-			background: #2d2d2d;
-			padding: 40px;
-			border-radius: 15px;
-			text-align: center;
-			color: #e0e0e0;
+		.loading-bar::before {
+			content: '';
+			position: absolute;
+			top: 0;
+			left: 0;
+			height: 100%;
+			width: 0%;
+			background: linear-gradient(90deg, #667eea, #48bb78, #667eea);
+			background-size: 200% 100%;
+			animation: loading-progress 1.5s ease-in-out infinite, loading-width 2s ease-in-out infinite;
+		}
+		@keyframes loading-progress {
+			0% { background-position: 0% 0%; }
+			100% { background-position: 200% 0%; }
+		}
+		@keyframes loading-width {
+			0%, 100% { width: 0%; }
+			50% { width: 70%; }
 		}
 		.target-legend {
 			display: flex;
@@ -375,10 +356,7 @@
 			</div>
 			<div class="control-group">
 				<label for="searchInput">Search:</label>
-				<div class="search-wrapper">
-					<input type="text" id="searchInput" placeholder="Filter targets..." style="width: 150px;">
-					<div id="searchLoader" class="search-loader"></div>
-				</div>
+				<input type="text" id="searchInput" placeholder="Filter targets..." style="width: 150px;">
 			</div>
 			<div class="control-group">
 				<label for="targetSelect">Target:</label>
@@ -427,12 +405,7 @@
 			</div>
 		</div>
 		
-		<div id="loadingOverlay" class="loading-overlay">
-			<div class="loading-content">
-				<div class="loading-spinner"></div>
-				<div style="margin-top: 20px; font-size: 16px;">Loading latency data...</div>
-			</div>
-		</div>
+		<div id="loadingBar" class="loading-bar"></div>
 		
 		<div id="noDataMessage" style="display: none; background: #1e1e1e; border-radius: 10px; padding: 40px; margin-bottom: 20px; text-align: center;">
 			<div style="font-size: 48px; margin-bottom: 15px;">📭</div>

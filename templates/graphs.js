@@ -82,18 +82,18 @@ function standardDeviation(arr) {
 	return Math.sqrt(avgSquaredDiff);
 }
 
-// Show/hide loading overlay
+// Show/hide loading bar
 function showLoading() {
-	var overlay = document.getElementById('loadingOverlay');
-	if (overlay) {
-		overlay.classList.add('show');
+	var loadingBar = document.getElementById('loadingBar');
+	if (loadingBar) {
+		loadingBar.classList.add('show');
 	}
 }
 
 function hideLoading() {
-	var overlay = document.getElementById('loadingOverlay');
-	if (overlay) {
-		overlay.classList.remove('show');
+	var loadingBar = document.getElementById('loadingBar');
+	if (loadingBar) {
+		loadingBar.classList.remove('show');
 	}
 }
 
@@ -928,8 +928,8 @@ async function refreshData() {
 			updateCharts(data);
 		}
 	} finally {
-		// Hide loading after a short delay to prevent flicker
-		setTimeout(hideLoading, 300);
+		// Hide loading bar immediately after charts update
+		hideLoading();
 	}
 }
 
@@ -946,14 +946,9 @@ document.addEventListener('DOMContentLoaded', function() {
 	}
 	
 	if (targetSelect) {
-		var searchLoader = document.getElementById('searchLoader');
 		targetSelect.addEventListener('change', function() {
 			if (this.value !== 'all' && searchInput) {
 				searchInput.value = '';
-				// Hide loader when clearing search
-				if (searchLoader) {
-					searchLoader.classList.remove('show');
-				}
 			}
 			if (cachedData) {
 				updateCharts(cachedData);
@@ -965,45 +960,19 @@ document.addEventListener('DOMContentLoaded', function() {
 		refreshBtn.addEventListener('click', refreshData);
 	}
 	
-	var searchTimeout = null;
 	if (searchInput) {
-		var searchLoader = document.getElementById('searchLoader');
 		searchInput.addEventListener('input', function() {
 			if (targetSelect) targetSelect.value = 'all';
-			
-			var searchValue = this.value.trim();
-			
-			// Show loader only if there's actual input (not empty)
-			if (searchLoader) {
-				if (searchValue) {
-					searchLoader.classList.add('show');
-				} else {
-					searchLoader.classList.remove('show');
-				}
+			if (cachedData) {
+				updateCharts(cachedData);
 			}
-			
-			clearTimeout(searchTimeout);
-			searchTimeout = setTimeout(function() {
-				if (cachedData) {
-					updateCharts(cachedData);
-				}
-				// Hide loader after update
-				if (searchLoader) {
-					searchLoader.classList.remove('show');
-				}
-			}, 300);
 		});
 	}
 	
 	if (clearBtn) {
-		var searchLoader = document.getElementById('searchLoader');
 		clearBtn.addEventListener('click', function() {
 			if (searchInput) searchInput.value = '';
 			if (targetSelect) targetSelect.value = 'all';
-			// Hide loader when clearing
-			if (searchLoader) {
-				searchLoader.classList.remove('show');
-			}
 			if (cachedData) {
 				updateCharts(cachedData);
 			}
