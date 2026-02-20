@@ -380,17 +380,24 @@ func (pm *PingMonitor) Start() {
 					needsSave := pm.stateSavePending
 					criticalSave := pm.criticalSavePending
 					
-					// Critical events bypass throttle
+					// Critical events get priority but still throttle during flapping storms
+					// (mass down/up can trigger 10+ saves/sec → OOM; limit to 1 per throttle window)
 					if criticalSave {
-						pm.stateSavePending = false
-						pm.criticalSavePending = false
-						pm.lastStateSave = time.Now()
-						pm.mu.Unlock()
-						
-						if err := pm.saveState(); err != nil {
-							log.Printf("⚠️ Failed to save critical state: %v", err)
+						timeSinceLastSave := time.Since(pm.lastStateSave).Seconds()
+						if timeSinceLastSave >= float64(throttleSeconds) {
+							pm.stateSavePending = false
+							pm.criticalSavePending = false
+							pm.lastStateSave = time.Now()
+							pm.mu.Unlock()
+							
+							if err := pm.saveState(); err != nil {
+								log.Printf("⚠️ Failed to save critical state: %v", err)
+							} else {
+								log.Printf("💾 Critical state saved (alert state change)")
+							}
 						} else {
-							log.Printf("💾 Critical state saved (alert state change)")
+							// Keep criticalSavePending so we save when throttle allows
+							pm.mu.Unlock()
 						}
 						continue
 					}
@@ -420,7 +427,7 @@ func (pm *PingMonitor) Start() {
 			}
 		}()
 		
-		log.Printf("💾 State persistence enabled: %s (event-driven, throttle: %ds, critical events immediate)", 
+		log.Printf("💾 State persistence enabled: %s (event-driven, throttle: %ds)", 
 			pm.config.StateFilePath, throttleSeconds)
 		pm.addLog(fmt.Sprintf("State persistence enabled (event-driven): %s", pm.config.StateFilePath))
 	}

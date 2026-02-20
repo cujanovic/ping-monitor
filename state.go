@@ -63,7 +63,6 @@ func (pm *PingMonitor) saveState() error {
 	}
 
 	cutoffTime := time.Now().Add(-time.Duration(pm.config.RecentIncidentsHours) * time.Hour)
-	latencyCutoff := time.Now().Add(-49 * 24 * time.Hour) // Keep 7 weeks of latency data
 	
 	for addr, stats := range pm.targetStats {
 		if stats == nil {
@@ -146,11 +145,12 @@ func (pm *PingMonitor) saveState() error {
 		}
 	}
 	
-	// Save latency history (last 7 weeks)
+	// Save latency history - limit to 7 days in state to prevent OOM (in-memory keeps 7 weeks for graphs)
+	persistCutoff := time.Now().Add(-7 * 24 * time.Hour)
 	for addr, points := range pm.latencyHistory {
 		validPoints := make([]LatencyPoint, 0, len(points))
 		for _, point := range points {
-			if point.Timestamp.After(latencyCutoff) {
+			if point.Timestamp.After(persistCutoff) {
 				validPoints = append(validPoints, point)
 			}
 		}
@@ -298,24 +298,26 @@ func (pm *PingMonitor) loadState() error {
 		}
 	}
 
-	// Restore latency history
+	// Restore latency history (last 7 days from state - in-memory will accumulate 7 weeks at runtime)
 	restoredLatencyPoints := 0
-	latencyCutoff := time.Now().Add(-49 * 24 * time.Hour) // 7 weeks
-	for addr, points := range state.LatencyHistory {
-		// Only restore if target still exists
-		if _, exists := pm.targetStats[addr]; !exists {
-			continue
-		}
-		
-		validPoints := make([]LatencyPoint, 0, len(points))
-		for _, point := range points {
-			if point.Timestamp.After(latencyCutoff) {
-				validPoints = append(validPoints, point)
-				restoredLatencyPoints++
+	if state.LatencyHistory != nil {
+		persistCutoff := time.Now().Add(-7 * 24 * time.Hour)
+		for addr, points := range state.LatencyHistory {
+			// Only restore if target still exists
+			if _, exists := pm.targetStats[addr]; !exists {
+				continue
 			}
-		}
-		if len(validPoints) > 0 {
-			pm.latencyHistory[addr] = validPoints
+			
+			validPoints := make([]LatencyPoint, 0, len(points))
+			for _, point := range points {
+				if point.Timestamp.After(persistCutoff) {
+					validPoints = append(validPoints, point)
+					restoredLatencyPoints++
+				}
+			}
+			if len(validPoints) > 0 {
+				pm.latencyHistory[addr] = validPoints
+			}
 		}
 	}
 
