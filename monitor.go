@@ -50,6 +50,7 @@ type PingMonitor struct {
 	lastStateSave      time.Time        // Last time state was saved to disk
 	stateSavePending   bool             // Flag indicating state needs to be saved
 	criticalSavePending bool            // Flag for critical events that need immediate save
+	allDownSuppressionActive bool      // True when suppressing due to all targets down (log only once per suppression period)
 	disabledTargets    map[string]bool // Dynamically disabled targets (key: target address)
 	stopChan           chan struct{}    // Signal to stop all goroutines
 	mu                 sync.RWMutex

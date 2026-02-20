@@ -47,9 +47,54 @@ func cleanupOldTimestamps(timestamps []time.Time) []time.Time {
 	return valid
 }
 
+// areAllTargetsDown checks if all enabled targets are currently down
+// This is used as a false positive check: if all targets are down simultaneously,
+// it likely indicates a VPN/monitoring infrastructure issue rather than actual target failures
+func (pm *PingMonitor) areAllTargetsDown() bool {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	
+	enabledCount := 0
+	downCount := 0
+	
+	// Count enabled targets and how many are down
+	for _, target := range pm.config.Targets {
+		// Skip disabled targets
+		if pm.disabledTargets[target.TargetAddr] {
+			continue
+		}
+		
+		enabledCount++
+		if pm.downTargets[target.TargetAddr] {
+			downCount++
+		}
+	}
+	
+	// If all enabled targets are down (and there's at least one enabled target), return true
+	return enabledCount > 0 && downCount == enabledCount
+}
+
 // canSendAlert checks if an alert can be sent based on cooldown and rate limiting
 // Implements priority-based, per-target, and per-alert-type rate limiting
+// Also includes false positive check: suppresses alerts when all targets are down (VPN issue)
 func (pm *PingMonitor) canSendAlert(target Target, alertType string) bool {
+	// False positive check: if all enabled targets are down, suppress alerts
+	// This indicates a VPN/monitoring infrastructure issue rather than actual target failures
+	if pm.areAllTargetsDown() {
+		pm.mu.Lock()
+		if !pm.allDownSuppressionActive {
+			pm.allDownSuppressionActive = true
+			pm.mu.Unlock()
+			log.Printf("🚫 All enabled targets are down - suppressing alerts (likely VPN/monitoring infrastructure issue)")
+		} else {
+			pm.mu.Unlock()
+		}
+		return false
+	}
+	pm.mu.Lock()
+	pm.allDownSuppressionActive = false
+	pm.mu.Unlock()
+
 	pm.mu.RLock()
 	key := AlertKey{TargetAddr: target.TargetAddr, AlertType: alertType}
 	lastAlert, exists := pm.lastAlertTime[key]
